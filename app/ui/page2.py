@@ -107,29 +107,32 @@ class Page2SplitView(PageWithCustomTopBar):
     def build_page(self):
         root = tk.Frame(
             self.body,
-            bg="#05070d",
+            bg=COLOR_PAGE_BG,
         )
         root.pack(
             fill=tk.BOTH,
             expand=True,
-            padx=20,
-            pady=20,
+            padx=24,
+            pady=22,
         )
+        root.grid_columnconfigure(0, weight=1, uniform="page2_columns")
+        root.grid_columnconfigure(1, weight=1, uniform="page2_columns")
+        root.grid_rowconfigure(0, weight=1)
 
         self.left = Page2LeftCanvas(root, self)
-        self.left.pack(
-            side=tk.LEFT,
-            fill=tk.BOTH,
-            expand=False,
-            padx=(0, 22),
+        self.left.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 14),
         )
-        self.left.config(width=655)
 
         self.right = Page2RightBlankArea(root, self)
-        self.right.pack(
-            side=tk.RIGHT,
-            fill=tk.BOTH,
-            expand=True,
+        self.right.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+            padx=(14, 0),
         )
 
     # =========================
@@ -508,7 +511,7 @@ class Page2SplitView(PageWithCustomTopBar):
             return
 
         if record.image_data_base64:
-            self.right.set_status("已生成 base64 图片。可继续生成视频或保存记录。")
+            self.right.set_base64_image(record.image_data_base64)
             return
 
         self.right.set_status("当前生成记录没有可显示内容。")
@@ -807,120 +810,466 @@ class Page2SplitView(PageWithCustomTopBar):
                 return text[:24]
         return "聊天记录"
 
+# =========================
+# Page2 UI: Left + Right
+# 直接替换原来的 Page2LeftCanvas 和 Page2RightBlankArea
+# =========================
+
+COLOR_PAGE_BG = "#070a12"
+COLOR_PANEL_BG = "#101722"
+COLOR_PANEL_ALT = "#151e2b"
+COLOR_CARD_BG = "#080d15"
+COLOR_CARD_USER_BG = "#151026"
+COLOR_CARD_BORDER = "#263241"
+COLOR_RIGHT_BG = "#0f1722"
+COLOR_CANVAS_BG = "#0a111b"
+COLOR_DASH = "#3f4d62"
+COLOR_TEXT = "#f7f9fc"
+COLOR_MUTED = "#9aa6b8"
+COLOR_INPUT_BG = "#f6f7fb"
+COLOR_PURPLE = "#9b5cff"
+COLOR_PURPLE_DARK = "#6424b7"
+COLOR_GREEN = "#42c982"
+COLOR_BLUE = "#54b5ff"
+COLOR_BUTTON_DARK = "#202b3a"
+COLOR_OUTLINE = "#344254"
+RADIUS_PANEL = 18
+RADIUS_CARD = 24
+RADIUS_BUTTON = 12
+
+
+def _safe_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception:
+        return None
+
+
+def _rounded_panel(master, bg, border="#222b38", thickness=1):
+    return tk.Frame(
+        master,
+        bg=bg,
+        highlightbackground=border,
+        highlightcolor=border,
+        highlightthickness=thickness,
+        bd=0,
+    )
+
+
+def _hex_to_rgb(color):
+    color = color.lstrip("#")
+    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgb_to_hex(rgb):
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+def _mix_hex(start, end, ratio):
+    sr, sg, sb = _hex_to_rgb(start)
+    er, eg, eb = _hex_to_rgb(end)
+    return _rgb_to_hex(
+        (
+            int(sr + (er - sr) * ratio),
+            int(sg + (eg - sg) * ratio),
+            int(sb + (eb - sb) * ratio),
+        )
+    )
+
+
+def _rounded_rectangle(canvas, x1, y1, x2, y2, radius, **kwargs):
+    radius = min(radius, abs(x2 - x1) / 2, abs(y2 - y1) / 2)
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
+class RoundedCanvasButton(tk.Canvas):
+    def __init__(
+        self,
+        master,
+        text,
+        command,
+        width=48,
+        height=44,
+        bg=COLOR_BUTTON_DARK,
+        fg=COLOR_TEXT,
+        active_bg="#2b384a",
+        radius=RADIUS_BUTTON,
+        font=("Arial", 14, "bold"),
+    ):
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            bg=master.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        self.text = text
+        self.command = command
+        self.button_bg = bg
+        self.active_bg = active_bg
+        self.fg = fg
+        self.radius = radius
+        self.font = font
+        self.bind("<Button-1>", self._click)
+        self.bind("<Enter>", lambda _event: self._draw(self.active_bg))
+        self.bind("<Leave>", lambda _event: self._draw(self.button_bg))
+        self._draw(self.button_bg)
+
+    def _draw(self, fill):
+        self.delete("all")
+        width = int(self.cget("width"))
+        height = int(self.cget("height"))
+        _rounded_rectangle(
+            self,
+            1,
+            1,
+            width - 2,
+            height - 2,
+            self.radius,
+            fill=fill,
+            outline=COLOR_OUTLINE,
+            width=1,
+        )
+        self.create_text(
+            width / 2,
+            height / 2,
+            text=self.text,
+            fill=self.fg,
+            font=self.font,
+        )
+
+    def _click(self, _event=None):
+        if self.command:
+            self.command()
+
+
+def _style_toplevel(window, title, geometry):
+    window.title(title)
+    window.geometry(geometry)
+    window.configure(bg=COLOR_PANEL_BG)
+    window.transient(window.master)
+
+
+def _make_sheet_label(master, text, size=12, color=COLOR_TEXT):
+    return tk.Label(
+        master,
+        text=text,
+        fg=color,
+        bg=COLOR_PANEL_BG,
+        font=("Arial", size, "bold" if size >= 14 else "normal"),
+    )
+
+
+def _make_sheet_button(master, text, command, kind="secondary", width=None):
+    palette = {
+        "primary": (COLOR_PURPLE, "#ffffff", COLOR_PURPLE_DARK),
+        "success": (COLOR_GREEN, "#06120c", "#6ee7a4"),
+        "danger": ("#7a3030", "#ffffff", "#923a3a"),
+        "secondary": (COLOR_BUTTON_DARK, "#e5ebf5", "#2b384a"),
+    }
+    bg, fg, active = palette.get(kind, palette["secondary"])
+
+    return tk.Button(
+        master,
+        text=text,
+        command=command,
+        width=width,
+        bg=bg,
+        fg=fg,
+        activebackground=active,
+        activeforeground=fg,
+        bd=0,
+        relief=tk.FLAT,
+        padx=14,
+        pady=6,
+        font=("Arial", 11, "bold"),
+        cursor="hand2",
+        takefocus=False,
+    )
+
+
+def _draw_gradient_avatar(canvas, x, y, size, colors):
+    """
+    用两个颜色做径向渐变头像。
+    """
+    start = colors[0]
+    end = colors[-1]
+    steps = 18
+    for i in range(steps, 0, -1):
+        ratio = i / steps
+        pad = (1 - ratio) * size / 2
+        color = _mix_hex(start, end, 1 - ratio)
+        canvas.create_oval(
+            x + pad,
+            y + pad,
+            x + size - pad,
+            y + size - pad,
+            fill=color,
+            outline="",
+        )
+
+
+def _make_icon_button(master, text, command, width=3, bg="#e7e7e7", fg="#222222"):
+    return RoundedCanvasButton(
+        master,
+        text=text,
+        command=command,
+        width=48 if width <= 4 else width * 12,
+        height=38,
+        bg=bg,
+        fg=fg,
+        active_bg="#ffffff" if bg == COLOR_INPUT_BG else _mix_hex(bg, "#ffffff", 0.1),
+        radius=11,
+        font=("Arial", 14, "bold"),
+    )
+
+
+def _make_footer_button(master, text, command, width=3):
+    return RoundedCanvasButton(
+        master,
+        text=text,
+        command=command,
+        width=54 if width <= 3 else width * 16,
+        height=54,
+        bg=COLOR_BUTTON_DARK,
+        fg="#d8dbe0",
+        active_bg="#303743",
+        radius=12,
+        font=("Arial", 13, "bold"),
+    )
+
 
 class Page2LeftCanvas(tk.Frame):
     """
-    对应 Swift 里的 Page2LeftCanvas。
-    左侧：聊天历史 + 输入框 + 图片按钮。
+    左侧聊天区。
+    对齐你截图里的样式：
+    - 深色左侧面板
+    - 黑色消息卡片
+    - 左侧 AI 渐变头像
+    - 右侧用户紫色头像
+    - 底部白色输入框
+    - 图片 / 人物 / 人物特写 / 回退 / 发送按钮
     """
 
     def __init__(self, master, controller):
         super().__init__(
             master,
-            bg="#0b1017",
-            highlightbackground="#222b38",
+            bg=COLOR_PANEL_BG,
+            highlightbackground=COLOR_OUTLINE,
+            highlightcolor=COLOR_OUTLINE,
             highlightthickness=1,
+            bd=0,
         )
 
         self.controller = controller
+        self._cards = []
 
-        self.messages = tk.Text(
-            self,
-            wrap=tk.WORD,
-            bg="#0b1017",
-            fg="white",
-            bd=0,
-            state=tk.DISABLED,
-            font=("Arial", 14),
-        )
-        self.messages.pack(
+        chat_shell = tk.Frame(self, bg=COLOR_PANEL_BG)
+        chat_shell.pack(
+            side=tk.TOP,
             fill=tk.BOTH,
             expand=True,
-            padx=16,
-            pady=16,
+            padx=22,
+            pady=(22, 10),
         )
 
-        self.messages.tag_config(
-            "user",
-            foreground="#ffffff",
-            spacing1=8,
-            spacing3=8,
+        self.chat_canvas = tk.Canvas(
+            chat_shell,
+            bg=COLOR_PANEL_BG,
+            bd=0,
+            highlightthickness=0,
         )
-        self.messages.tag_config(
-            "assistant",
-            foreground="#d4fff9",
-            spacing1=8,
-            spacing3=8,
+        self.chat_canvas.pack(
+            side=tk.LEFT,
+            fill=tk.BOTH,
+            expand=True,
         )
 
-        input_frame = tk.Frame(
+        self.scroll_frame = tk.Frame(
+            self.chat_canvas,
+            bg=COLOR_PANEL_BG,
+        )
+
+        self.chat_window = self.chat_canvas.create_window(
+            0,
+            0,
+            anchor="nw",
+            window=self.scroll_frame,
+        )
+
+        self.scroll_frame.bind("<Configure>", self._on_scroll_frame_configure)
+        self.chat_canvas.bind("<Configure>", self._on_canvas_configure)
+        self.chat_canvas.bind_all("<MouseWheel>", self._on_mouse_wheel)
+
+        self._build_input_bar()
+        self.refresh()
+
+    # =========================
+    # Layout
+    # =========================
+
+    def _on_scroll_frame_configure(self, _event=None):
+        self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event):
+        self.chat_canvas.itemconfig(self.chat_window, width=event.width)
+
+        for card in self._cards:
+            _safe_call(card.update_wraplength, max(280, event.width - 150))
+
+    def _on_mouse_wheel(self, event):
+        try:
+            self.chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        except Exception:
+            pass
+
+    def _build_input_bar(self):
+        self.input_outer = tk.Canvas(
             self,
-            bg="#f5f5f5",
+            height=138,
+            bg=COLOR_PANEL_BG,
+            bd=0,
+            highlightthickness=0,
         )
-        input_frame.pack(
+        self.input_outer.pack(
+            side=tk.BOTTOM,
             fill=tk.X,
-            padx=18,
-            pady=(0, 14),
+            padx=22,
+            pady=(0, 22),
         )
+        self.input_outer.bind("<Configure>", self._draw_input_shell)
 
         self.input = tk.Text(
-            input_frame,
-            height=3,
+            self.input_outer,
+            height=2,
             wrap=tk.WORD,
-            bg="white",
-            fg="black",
+            bg=COLOR_PANEL_BG,
+            fg=COLOR_TEXT,
+            insertbackground=COLOR_TEXT,
             bd=0,
+            relief=tk.FLAT,
             font=("Arial", 14),
+            padx=4,
+            pady=4,
         )
-        self.input.pack(
-            fill=tk.X,
-            padx=10,
-            pady=(8, 0),
+        self.input_window = self.input_outer.create_window(
+            18,
+            20,
+            anchor="nw",
+            window=self.input,
         )
         self.input.bind("<Return>", self.submit_on_enter)
 
         bar = tk.Frame(
-            input_frame,
-            bg="#f5f5f5",
+            self.input_outer,
+            bg=COLOR_PANEL_BG,
         )
-        bar.pack(fill=tk.X)
+        self.input_bar_window = self.input_outer.create_window(
+            18,
+            82,
+            anchor="nw",
+            window=bar,
+        )
 
-        tk.Button(
+        _make_icon_button(
             bar,
-            text="🖼",
-            command=lambda: controller.generate_image_prompt_from_latest_assistant_message("normal"),
-            bd=0,
-        ).pack(side=tk.LEFT, padx=8)
+            "▧",
+            lambda: self.controller.generate_image_prompt_from_latest_assistant_message("normal"),
+            width=4,
+            bg="#121a25",
+            fg="#d7dce5",
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
+        _make_icon_button(
             bar,
-            text="我",
-            command=lambda: controller.generate_image_prompt_from_latest_assistant_message("first_person"),
-            bd=0,
-        ).pack(side=tk.LEFT)
+            "●",
+            lambda: self.controller.generate_image_prompt_from_latest_assistant_message("first_person"),
+            width=4,
+            bg=COLOR_GREEN,
+            fg="#ffffff",
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
+        RoundedCanvasButton(
             bar,
             text="人物特写",
-            command=lambda: controller.generate_image_prompt_from_latest_assistant_message("closeup"),
-            bd=0,
-        ).pack(side=tk.LEFT, padx=8)
+            command=lambda: self.controller.generate_image_prompt_from_latest_assistant_message("closeup"),
+            width=118,
+            height=38,
+            bg=COLOR_GREEN,
+            fg="#ffffff",
+            active_bg="#35b875",
+            radius=12,
+            font=("Arial", 11, "bold"),
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
+        _make_icon_button(
             bar,
-            text="↶",
-            command=controller.rollback_last_turn,
-            bd=0,
-        ).pack(side=tk.LEFT)
+            "↩",
+            self.controller.rollback_last_turn,
+            width=4,
+            bg="#121a25",
+            fg="#d7dce5",
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
+        _make_icon_button(
             bar,
-            text="↑",
-            command=controller.send_current_message,
-            bd=0,
-        ).pack(side=tk.RIGHT, padx=12, pady=6)
+            "↑",
+            self.controller.send_current_message,
+            width=4,
+            bg="#121a25",
+            fg="#ffffff",
+        ).pack(side=tk.RIGHT)
 
-        self.refresh()
+    def _draw_input_shell(self, _event=None):
+        width = self.input_outer.winfo_width()
+        if width <= 20:
+            return
+
+        self.input_outer.delete("shell")
+        _rounded_rectangle(
+            self.input_outer,
+            1,
+            1,
+            width - 2,
+            136,
+            14,
+            fill=COLOR_PANEL_BG,
+            outline=COLOR_OUTLINE,
+            width=1,
+            tags="shell",
+        )
+        self.input_outer.create_line(
+            18,
+            72,
+            width - 18,
+            72,
+            fill="#2b3544",
+            width=1,
+            tags="shell",
+        )
+        self.input_outer.tag_lower("shell")
+        self.input_outer.itemconfig(self.input_window, width=max(120, width - 36))
+        self.input_outer.itemconfig(self.input_bar_window, width=max(120, width - 36))
+
+    # =========================
+    # Events
+    # =========================
 
     def submit_on_enter(self, event):
         # Shift + Enter 换行；Enter 发送
@@ -930,162 +1279,567 @@ class Page2LeftCanvas(tk.Frame):
         self.controller.send_current_message()
         return "break"
 
+    # =========================
+    # Refresh
+    # =========================
+
     def refresh(self):
-        self.messages.config(state=tk.NORMAL)
-        self.messages.delete("1.0", tk.END)
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+
+        self._cards = []
 
         for turn in self.controller.conversation_turns:
-            self.messages.insert(
-                tk.END,
-                "用户：{}\n".format(turn.user_message),
-                "user",
-            )
+            self._add_user_card(turn.user_message, turn)
 
             if turn.is_loading:
                 reply = "正在回复..."
             else:
                 reply = turn.assistant_message or ""
 
-            self.messages.insert(
-                tk.END,
-                "助手：{}\n\n".format(reply),
-                "assistant",
+            if reply:
+                self._add_assistant_card(reply, turn)
+
+        self.after(50, self._scroll_to_bottom)
+
+    def _scroll_to_bottom(self):
+        self.chat_canvas.update_idletasks()
+        self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+        self.chat_canvas.yview_moveto(1.0)
+
+    def _add_user_card(self, text, turn):
+        card = Page2MessageCard(
+            self.scroll_frame,
+            text=text,
+            role="user",
+            on_edit=lambda t=turn: self.controller.edit_turn(t.id, "user"),
+        )
+        card.pack(fill=tk.X, pady=(0, 10))
+        self._cards.append(card)
+
+    def _add_assistant_card(self, text, turn):
+        card = Page2MessageCard(
+            self.scroll_frame,
+            text=text,
+            role="assistant",
+            on_edit=lambda t=turn: self.controller.edit_turn(t.id, "assistant"),
+        )
+        card.pack(fill=tk.X, pady=(0, 16))
+        self._cards.append(card)
+
+
+class Page2MessageCard(tk.Frame):
+    """
+    单条消息卡片。
+    """
+
+    def __init__(self, master, text, role, on_edit=None):
+        super().__init__(
+            master,
+            bg=COLOR_PANEL_BG,
+        )
+
+        self.text = text or ""
+        self.role = role
+        self.on_edit = on_edit
+        self.canvas = None
+        self.wraplength = 470
+
+        self._build()
+
+    def _build(self):
+        self.canvas = tk.Canvas(
+            self,
+            height=112,
+            bg=COLOR_PANEL_BG,
+            bd=0,
+            highlightthickness=0,
+        )
+        self.canvas.pack(fill=tk.X, padx=10)
+        self.canvas.bind("<Configure>", lambda _event: self._redraw())
+        self.canvas.bind("<Double-Button-1>", lambda _event: self.on_edit() if self.on_edit else None)
+
+    def _redraw(self):
+        if self.canvas is None:
+            return
+
+        self.canvas.delete("all")
+        is_user = self.role == "user"
+        width = max(320, self.canvas.winfo_width())
+        text_width = max(180, width - 150)
+        line_count = max(1, int(len(self.text) / max(16, text_width / 13)) + self.text.count("\n"))
+        height = max(112, min(260, 74 + line_count * 22))
+        self.canvas.config(height=height)
+
+        card_bg = COLOR_CARD_USER_BG if is_user else COLOR_CARD_BG
+        border = "#29154d" if is_user else "#1f2b38"
+        shadow = "#2b1453" if is_user else "#123830"
+
+        _rounded_rectangle(
+            self.canvas,
+            1,
+            4,
+            width - 2,
+            height - 8,
+            RADIUS_CARD,
+            fill=card_bg,
+            outline="#05080d",
+            width=1,
+        )
+        _rounded_rectangle(
+            self.canvas,
+            2,
+            2,
+            width - 3,
+            height - 11,
+            RADIUS_CARD,
+            fill="",
+            outline=border,
+            width=1,
+        )
+        self.canvas.create_line(
+            24,
+            height - 8,
+            width - 24,
+            height - 8,
+            fill=shadow,
+            width=2,
+        )
+
+        avatar_size = 56
+        avatar_x = width - 74 if is_user else 28
+        avatar_y = 22
+        _draw_gradient_avatar(
+            self.canvas,
+            avatar_x,
+            avatar_y,
+            avatar_size,
+            ["#7f3bd7", "#14051f"] if is_user else ["#f3a4ff", "#20d2df"],
+        )
+
+        text_x = 38 if is_user else 102
+        if is_user:
+            text_width = max(120, width - 138)
+        else:
+            text_width = max(120, width - 130)
+
+        self.canvas.create_text(
+            text_x,
+            34,
+            text=self.text,
+            fill=COLOR_TEXT,
+            width=text_width,
+            justify=tk.LEFT,
+            anchor="nw",
+            font=("Arial", 14, "bold"),
+        )
+
+        if self.on_edit:
+            self.canvas.create_text(
+                width - 26 if not is_user else 26,
+                height - 31,
+                text="✎",
+                fill=COLOR_MUTED,
+                font=("Arial", 11, "bold"),
             )
 
-        self.messages.config(state=tk.DISABLED)
-        self.messages.see(tk.END)
+    def update_wraplength(self, wraplength):
+        self.wraplength = wraplength
+        self._redraw()
 
 
 class Page2RightBlankArea(tk.Frame):
     """
-    对应 Swift 里的 Page2RightBlankArea。
-    右侧：图片 / 视频 URL 展示 + 操作栏。
+    右侧画布区。
+    对齐截图里的：
+    - 深色大画布
+    - 虚线空画布
+    - 中间空状态图标
+    - 底部设置、URL、上一张、下一张按钮
     """
 
     def __init__(self, master, controller):
         super().__init__(
             master,
-            bg="#0e141d",
-            highlightbackground="#222b38",
+            bg=COLOR_RIGHT_BG,
+            highlightbackground="#263141",
+            highlightcolor="#263141",
             highlightthickness=1,
+            bd=0,
         )
 
         self.controller = controller
         self.current_url = ""
+        self.current_photo = None
+        self.current_status = "生成的图像将显示在这里"
 
-        self.display = tk.Message(
+        self.canvas_meta = tk.Label(self, text="", bg=COLOR_RIGHT_BG)
+
+        self.display_canvas = tk.Canvas(
             self,
-            text="生成的图片将在这里显示",
-            fg="#98a2b3",
-            bg="#0e141d",
-            width=620,
-            font=("Arial", 16),
+            bg=COLOR_CANVAS_BG,
+            bd=0,
+            highlightthickness=0,
         )
-        self.display.pack(
+        self.display_canvas.pack(
+            side=tk.TOP,
             fill=tk.BOTH,
             expand=True,
             padx=20,
-            pady=20,
+            pady=(20, 8),
         )
+        self.display_canvas.bind("<Configure>", lambda _event: self._redraw())
+
+        top_tools = tk.Frame(self, bg=COLOR_RIGHT_BG)
+        top_tools.place(relx=1.0, y=42, x=-58, anchor="ne")
+
+        _make_footer_button(
+            top_tools,
+            "☁",
+            controller.upload_current_displayed_image_to_cloudinary,
+        ).pack(side=tk.TOP, pady=(0, 10))
+
+        _make_footer_button(
+            top_tools,
+            "▣",
+            lambda: controller.open_image_prompt_sheet(),
+        ).pack(side=tk.TOP, pady=(0, 10))
+
+        _make_footer_button(
+            top_tools,
+            "⌫",
+            controller.delete_current_generated_image,
+        ).pack(side=tk.TOP)
 
         footer = tk.Frame(
             self,
-            bg="#0e141d",
+            bg=COLOR_RIGHT_BG,
         )
         footer.pack(
+            side=tk.BOTTOM,
             fill=tk.X,
             padx=20,
-            pady=(0, 20),
+            pady=(0, 18),
         )
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="⚙",
-            command=controller.open_context_settings,
-            width=3,
+            "⚙",
+            controller.open_context_settings,
         ).pack(side=tk.LEFT)
 
         self.footer_label = tk.Label(
             footer,
             text="",
             fg="#b8beca",
-            bg="#0e141d",
+            bg=COLOR_RIGHT_BG,
+            font=("Arial", 11),
         )
         self.footer_label.pack(side=tk.LEFT, padx=8)
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="URL+",
-            command=controller.open_image_url_store_sheet,
-        ).pack(side=tk.RIGHT, padx=4)
+            "›",
+            controller.show_next_generated_image,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="复制",
-            command=controller.copy_current_video_or_image_url,
-        ).pack(side=tk.RIGHT, padx=4)
+            "‹",
+            controller.show_previous_generated_image,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="prompt",
-            command=lambda: controller.open_image_prompt_sheet(),
-        ).pack(side=tk.RIGHT, padx=4)
+            "≡",
+            controller.open_image_url_store_sheet,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="‹",
-            command=controller.show_previous_generated_image,
-        ).pack(side=tk.RIGHT, padx=4)
+            "↗",
+            controller.copy_current_video_or_image_url,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
-        tk.Button(
+        _make_footer_button(
             footer,
-            text="›",
-            command=controller.show_next_generated_image,
-        ).pack(side=tk.RIGHT, padx=4)
+            "⌘",
+            controller.generate_video_from_current_image,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
 
-        tk.Button(
-            footer,
-            text="video",
-            command=controller.generate_video_from_current_image,
-        ).pack(side=tk.RIGHT, padx=4)
+        self._redraw()
 
-        tk.Button(
-            footer,
-            text="upload",
-            command=controller.upload_current_displayed_image_to_cloudinary,
-        ).pack(side=tk.RIGHT, padx=4)
-
-        tk.Button(
-            footer,
-            text="delete",
-            command=controller.delete_current_generated_image,
-        ).pack(side=tk.RIGHT, padx=4)
+    # =========================
+    # Public API used by controller
+    # =========================
 
     def set_status(self, text):
         self.current_url = ""
-        self.display.config(text=text)
-        self.display.unbind("<Button-1>")
+        self.current_photo = None
+        self.current_status = text or "生成的图像将显示在这里"
+        self.canvas_meta.config(text="等待生成")
+        self.display_canvas.unbind("<Button-1>")
+        self._redraw()
 
     def set_footer(self, text):
-        self.footer_label.config(text=text)
+        self.footer_label.config(text=text or "")
         self.after(
             1200,
             lambda: self.footer_label.config(text=""),
         )
 
     def set_url(self, url, kind="image"):
-        self.current_url = url
+        self.current_url = url or ""
+        self.current_photo = None
 
         label = "视频" if kind == "video" else "图片"
+        self.current_status = "{} URL：\n{}\n\n点击打开".format(label, self.current_url)
+        self.canvas_meta.config(text="{} URL".format(label))
 
-        self.display.config(
-            text="{} URL：\n{}\n\n点击打开".format(label, url)
-        )
-        self.display.bind(
+        self.display_canvas.bind(
             "<Button-1>",
-            lambda _event: webbrowser.open(url),
+            lambda _event: webbrowser.open(self.current_url) if self.current_url else None,
         )
 
+        self._redraw()
+
+    def set_base64_image(self, image_base64):
+        """
+        显示 base64 图片。
+        注意：
+        - Tkinter 原生 PhotoImage 通常支持 PNG / GIF。
+        - 如果你的 base64 是 JPG/WebP，建议后续接 PIL/Pillow 做转换。
+        """
+        try:
+            clean = str(image_base64 or "").strip()
+
+            if clean.startswith("data:image"):
+                clean = clean.split(",", 1)[1]
+
+            # 真正使用 import base64：先校验，再交给 PhotoImage
+            base64.b64decode(clean, validate=False)
+
+            self.current_photo = tk.PhotoImage(data=clean)
+            self.current_url = ""
+            self.current_status = ""
+            self.canvas_meta.config(text="本地预览")
+            self.display_canvas.unbind("<Button-1>")
+            self._redraw()
+
+        except Exception as exc:
+            self.current_photo = None
+            self.set_status("base64 图片显示失败：\n{}".format(exc))
+
+    # =========================
+    # Drawing
+    # =========================
+
+    def _redraw(self):
+        self.display_canvas.delete("all")
+
+        w = self.display_canvas.winfo_width()
+        h = self.display_canvas.winfo_height()
+
+        if w <= 20 or h <= 20:
+            return
+
+        pad = 0
+        inner_pad = 22
+
+        self.display_canvas.create_rectangle(
+            pad,
+            pad,
+            w - pad,
+            h - pad,
+            fill=COLOR_CANVAS_BG,
+            outline="",
+        )
+
+        self.display_canvas.create_rectangle(
+            1,
+            1,
+            w - 2,
+            h - 2,
+            fill="",
+            outline="#1d2a3b",
+            width=1,
+        )
+
+        self.display_canvas.create_rectangle(
+            inner_pad,
+            inner_pad,
+            w - inner_pad,
+            h - inner_pad,
+            outline=COLOR_DASH,
+            width=1,
+            dash=(7, 7),
+        )
+
+        _rounded_rectangle(
+            self.display_canvas,
+            inner_pad,
+            inner_pad,
+            w - inner_pad,
+            h - inner_pad,
+            16,
+            fill="",
+            outline=COLOR_DASH,
+            width=1,
+        )
+
+        if self.current_photo is not None:
+            self._draw_photo(w, h, inner_pad)
+            return
+
+        if self.current_url:
+            self._draw_url_state(w, h)
+            return
+
+        self._draw_empty_state(w, h)
+
+    def _draw_photo(self, w, h, inner_pad):
+        img_w = self.current_photo.width()
+        img_h = self.current_photo.height()
+
+        max_w = max(100, w - inner_pad * 4)
+        max_h = max(100, h - inner_pad * 4)
+
+        # Tkinter PhotoImage 只能整数倍 subsample，做一个基础缩小
+        photo = self.current_photo
+        scale = max(img_w / max_w, img_h / max_h, 1)
+
+        if scale > 1:
+            factor = int(scale) + 1
+            photo = self.current_photo.subsample(factor, factor)
+
+        self.display_canvas.create_image(
+            w / 2,
+            h / 2,
+            image=photo,
+            anchor="center",
+        )
+
+        # 防止局部变量 photo 被 GC
+        self._shown_photo = photo
+
+    def _draw_url_state(self, w, h):
+        cx = w / 2
+        cy = h / 2
+
+        self.display_canvas.create_rectangle(
+            cx - 72,
+            cy - 110,
+            cx + 72,
+            cy - 18,
+            fill="#111b28",
+            outline="#2b3a50",
+            width=1,
+        )
+        self.display_canvas.create_line(
+            cx - 42,
+            cy - 64,
+            cx - 10,
+            cy - 64,
+            fill=COLOR_BLUE,
+            width=3,
+        )
+        self.display_canvas.create_line(
+            cx + 10,
+            cy - 64,
+            cx + 42,
+            cy - 64,
+            fill=COLOR_PURPLE,
+            width=3,
+        )
+
+        self.display_canvas.create_text(
+            cx,
+            cy + 24,
+            text=self.current_status,
+            fill="#d6d8dc",
+            width=max(260, w - 110),
+            justify=tk.CENTER,
+            font=("Arial", 14, "bold"),
+        )
+
+        self.display_canvas.create_text(
+            cx,
+            cy + 122,
+            text="点击打开",
+            fill=COLOR_MUTED,
+            font=("Arial", 12),
+        )
+
+    def _draw_empty_state(self, w, h):
+        cx = w / 2
+        cy = h / 2 - 30
+
+        self.display_canvas.create_rectangle(
+            cx - 58,
+            cy - 44,
+            cx + 58,
+            cy + 44,
+            fill="#111b28",
+            outline="#2b3a50",
+            width=1,
+        )
+        self.display_canvas.create_rectangle(
+            cx - 34,
+            cy - 18,
+            cx + 34,
+            cy + 24,
+            fill="#172335",
+            outline="#3f4d62",
+            width=1,
+        )
+        self.display_canvas.create_polygon(
+            cx - 31,
+            cy + 22,
+            cx - 8,
+            cy - 2,
+            cx + 10,
+            cy + 16,
+            cx + 24,
+            cy + 4,
+            cx + 32,
+            cy + 22,
+            fill="#27384f",
+            outline="",
+        )
+        self.display_canvas.create_oval(
+            cx + 16,
+            cy - 12,
+            cx + 25,
+            cy - 3,
+            fill=COLOR_GREEN,
+            outline="",
+        )
+
+        self.display_canvas.create_text(
+            cx,
+            cy - 62,
+            text="IMAGE",
+            fill="#526174",
+            font=("Arial", 9, "bold"),
+        )
+
+        self.display_canvas.create_text(
+            cx,
+            cy + 70,
+            text="画布为空",
+            fill="#d6d8dc",
+            font=("Arial", 15, "bold"),
+        )
+
+        self.display_canvas.create_text(
+            cx,
+            cy + 98,
+            text=self.current_status or "生成的图像将显示在这里",
+            fill=COLOR_MUTED,
+            width=max(260, w - 130),
+            justify=tk.CENTER,
+            font=("Arial", 13),
+        )
 
 class ImagePromptEditSheet(tk.Toplevel):
     """
@@ -1097,24 +1851,24 @@ class ImagePromptEditSheet(tk.Toplevel):
 
         self.controller = controller
 
-        self.title("确认图片提示词")
-        self.geometry("720x600")
-        self.configure(bg="#202020")
+        _style_toplevel(self, "确认图片提示词", "760x640")
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="图片 prompt",
-            fg="white",
-            bg="#202020",
-            font=("Arial", 16, "bold"),
+            size=16,
         ).pack(anchor="w", padx=18, pady=(18, 8))
 
         self.prompt = tk.Text(
             self,
             height=13,
             wrap=tk.WORD,
-            bg="white",
-            fg="black",
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            padx=12,
+            pady=12,
             font=("Arial", 14),
         )
         self.prompt.pack(
@@ -1124,19 +1878,22 @@ class ImagePromptEditSheet(tk.Toplevel):
         )
         self.prompt.insert("1.0", prompt)
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="参考图 URL（一行一个，可为空）",
-            fg="#d0d0d0",
-            bg="#202020",
+            color=COLOR_MUTED,
         ).pack(anchor="w", padx=18, pady=(12, 4))
 
         self.urls = tk.Text(
             self,
             height=5,
             wrap=tk.WORD,
-            bg="white",
-            fg="black",
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            padx=10,
+            pady=8,
         )
         self.urls.pack(
             fill=tk.X,
@@ -1145,7 +1902,7 @@ class ImagePromptEditSheet(tk.Toplevel):
 
         bar = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         bar.pack(
             fill=tk.X,
@@ -1153,7 +1910,7 @@ class ImagePromptEditSheet(tk.Toplevel):
             pady=18,
         )
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="取消",
             command=self.destroy,
@@ -1169,10 +1926,11 @@ class ImagePromptEditSheet(tk.Toplevel):
         ]
 
         for name, provider in providers:
-            tk.Button(
+            _make_sheet_button(
                 bar,
                 text=name,
                 command=lambda p=provider: self.confirm(p),
+                kind="primary" if provider == "grok" else "secondary",
             ).pack(side=tk.RIGHT, padx=3)
 
     def confirm(self, provider):
@@ -1212,37 +1970,43 @@ class Page2ContextSettingsSheet(tk.Toplevel):
 
         self.controller = controller
 
-        self.title("页面二设置")
-        self.geometry("440x420")
-        self.configure(bg="#202020")
+        _style_toplevel(self, "页面二设置", "480x460")
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="上下文轮数",
-            fg="white",
-            bg="#202020",
         ).pack(anchor="w", padx=18, pady=(18, 4))
 
-        self.context_entry = tk.Entry(self)
+        self.context_entry = tk.Entry(
+            self,
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            font=("Arial", 13),
+        )
         self.context_entry.insert(0, str(controller.context_turn_count))
         self.context_entry.pack(fill=tk.X, padx=18)
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="Temperature",
-            fg="white",
-            bg="#202020",
         ).pack(anchor="w", padx=18, pady=(12, 4))
 
-        self.temp_entry = tk.Entry(self)
+        self.temp_entry = tk.Entry(
+            self,
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            font=("Arial", 13),
+        )
         self.temp_entry.insert(0, str(controller.temperature))
         self.temp_entry.pack(fill=tk.X, padx=18)
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="模型",
-            fg="white",
-            bg="#202020",
         ).pack(anchor="w", padx=18, pady=(12, 4))
 
         self.model_var = tk.StringVar(value=controller.selected_chat_model)
@@ -1257,16 +2021,16 @@ class Page2ContextSettingsSheet(tk.Toplevel):
                 text=title,
                 variable=self.model_var,
                 value=value,
-                bg="#202020",
-                fg="white",
-                selectcolor="#303030",
+                bg=COLOR_PANEL_BG,
+                fg=COLOR_TEXT,
+                activebackground=COLOR_PANEL_BG,
+                activeforeground=COLOR_TEXT,
+                selectcolor=COLOR_PANEL_ALT,
             ).pack(anchor="w", padx=18)
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="视频服务",
-            fg="white",
-            bg="#202020",
         ).pack(anchor="w", padx=18, pady=(12, 4))
 
         self.video_var = tk.StringVar(
@@ -1282,14 +2046,16 @@ class Page2ContextSettingsSheet(tk.Toplevel):
                 text=title,
                 variable=self.video_var,
                 value=value,
-                bg="#202020",
-                fg="white",
-                selectcolor="#303030",
+                bg=COLOR_PANEL_BG,
+                fg=COLOR_TEXT,
+                activebackground=COLOR_PANEL_BG,
+                activeforeground=COLOR_TEXT,
+                selectcolor=COLOR_PANEL_ALT,
             ).pack(anchor="w", padx=18)
 
         bar = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         bar.pack(
             fill=tk.X,
@@ -1297,22 +2063,23 @@ class Page2ContextSettingsSheet(tk.Toplevel):
             pady=18,
         )
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="修改 systemprompt",
             command=controller.edit_page2_system_prompt,
         ).pack(side=tk.LEFT)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="取消",
             command=self.destroy,
         ).pack(side=tk.RIGHT)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="保存",
             command=self.save,
+            kind="primary",
         ).pack(side=tk.RIGHT, padx=6)
 
     def save(self):
@@ -1350,9 +2117,7 @@ class ImageURLStoreSheet(tk.Toplevel):
 
         self.controller = controller
 
-        self.title("URL 收藏")
-        self.geometry("620x560")
-        self.configure(bg="#202020")
+        _style_toplevel(self, "URL 收藏", "660x600")
 
         self.records = self.load_records(AppStorageKeys.STORED_IMAGE_URL_RECORDS)
         self.hidden_records = self.load_records(AppStorageKeys.HIDDEN_URL_RECORDS)
@@ -1360,9 +2125,13 @@ class ImageURLStoreSheet(tk.Toplevel):
 
         self.listbox = tk.Listbox(
             self,
-            bg="#111722",
-            fg="white",
-            selectbackground="#293447",
+            bg=COLOR_CANVAS_BG,
+            fg=COLOR_TEXT,
+            selectbackground=COLOR_PURPLE_DARK,
+            selectforeground="#ffffff",
+            highlightbackground=COLOR_CARD_BORDER,
+            highlightcolor=COLOR_CARD_BORDER,
+            relief=tk.FLAT,
             font=("Arial", 14),
         )
         self.listbox.pack(
@@ -1375,23 +2144,31 @@ class ImageURLStoreSheet(tk.Toplevel):
 
         input_row = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         input_row.pack(
             fill=tk.X,
             padx=18,
         )
 
-        self.entry = tk.Entry(input_row)
+        self.entry = tk.Entry(
+            input_row,
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            font=("Arial", 13),
+        )
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Button(
+        _make_sheet_button(
             input_row,
             text="新增",
             command=self.add,
+            kind="primary",
         ).pack(side=tk.LEFT, padx=6)
 
-        tk.Button(
+        _make_sheet_button(
             input_row,
             text="上传获取 URL",
             command=self.upload,
@@ -1399,7 +2176,7 @@ class ImageURLStoreSheet(tk.Toplevel):
 
         bar = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         bar.pack(
             fill=tk.X,
@@ -1407,25 +2184,27 @@ class ImageURLStoreSheet(tk.Toplevel):
             pady=18,
         )
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="预览",
             command=self.preview_selected,
+            kind="primary",
         ).pack(side=tk.LEFT)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="复制",
             command=self.copy_selected,
         ).pack(side=tk.LEFT, padx=6)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="删除",
             command=self.delete_selected,
+            kind="danger",
         ).pack(side=tk.LEFT)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="确定",
             command=self.destroy,
@@ -1635,24 +2414,25 @@ class VideoGenerationPromptSheet(tk.Toplevel):
         self.controller = controller
         self.source_record = source_record
 
-        self.title("生成视频")
-        self.geometry("520x360")
-        self.configure(bg="#202020")
+        _style_toplevel(self, "生成视频", "560x400")
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="视频 prompt",
-            fg="white",
-            bg="#202020",
-            font=("Arial", 15, "bold"),
+            size=15,
         ).pack(anchor="w", padx=18, pady=(18, 8))
 
         self.prompt = tk.Text(
             self,
             height=8,
             wrap=tk.WORD,
-            bg="white",
-            fg="black",
+            bg="#f7f9fc",
+            fg="#101319",
+            insertbackground="#101319",
+            relief=tk.FLAT,
+            padx=12,
+            pady=12,
+            font=("Arial", 13),
         )
         self.prompt.pack(
             fill=tk.BOTH,
@@ -1660,18 +2440,17 @@ class VideoGenerationPromptSheet(tk.Toplevel):
             padx=18,
         )
 
-        tk.Label(
+        _make_sheet_label(
             self,
             text="视频时长",
-            fg="white",
-            bg="#202020",
+            color=COLOR_MUTED,
         ).pack(anchor="w", padx=18, pady=(12, 4))
 
         self.seconds_var = tk.StringVar(value="5")
 
         seconds_row = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         seconds_row.pack(fill=tk.X, padx=18)
 
@@ -1681,14 +2460,16 @@ class VideoGenerationPromptSheet(tk.Toplevel):
                 text=value + " 秒",
                 variable=self.seconds_var,
                 value=value,
-                bg="#202020",
-                fg="white",
-                selectcolor="#303030",
+                bg=COLOR_PANEL_BG,
+                fg=COLOR_TEXT,
+                activebackground=COLOR_PANEL_BG,
+                activeforeground=COLOR_TEXT,
+                selectcolor=COLOR_PANEL_ALT,
             ).pack(side=tk.LEFT)
 
         bar = tk.Frame(
             self,
-            bg="#202020",
+            bg=COLOR_PANEL_BG,
         )
         bar.pack(
             fill=tk.X,
@@ -1696,16 +2477,17 @@ class VideoGenerationPromptSheet(tk.Toplevel):
             pady=18,
         )
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="取消",
             command=self.destroy,
         ).pack(side=tk.LEFT)
 
-        tk.Button(
+        _make_sheet_button(
             bar,
             text="生成",
             command=self.confirm,
+            kind="primary",
         ).pack(side=tk.RIGHT)
 
     def confirm(self):
@@ -1749,9 +2531,7 @@ def text_prompt(parent, title, initial_text):
     """
 
     dialog = tk.Toplevel(parent)
-    dialog.title(title)
-    dialog.geometry("620x420")
-    dialog.configure(bg="#202020")
+    _style_toplevel(dialog, title, "660x460")
 
     result = {
         "value": None,
@@ -1760,8 +2540,12 @@ def text_prompt(parent, title, initial_text):
     text = tk.Text(
         dialog,
         wrap=tk.WORD,
-        bg="white",
-        fg="black",
+        bg="#f7f9fc",
+        fg="#101319",
+        insertbackground="#101319",
+        relief=tk.FLAT,
+        padx=12,
+        pady=12,
         font=("Arial", 14),
     )
     text.pack(
@@ -1774,7 +2558,7 @@ def text_prompt(parent, title, initial_text):
 
     bar = tk.Frame(
         dialog,
-        bg="#202020",
+        bg=COLOR_PANEL_BG,
     )
     bar.pack(
         fill=tk.X,
@@ -1790,16 +2574,17 @@ def text_prompt(parent, title, initial_text):
         result["value"] = text.get("1.0", tk.END).strip()
         dialog.destroy()
 
-    tk.Button(
+    _make_sheet_button(
         bar,
         text="取消",
         command=cancel,
     ).pack(side=tk.LEFT)
 
-    tk.Button(
+    _make_sheet_button(
         bar,
         text="保存",
         command=save,
+        kind="primary",
     ).pack(side=tk.RIGHT)
 
     dialog.grab_set()

@@ -142,6 +142,25 @@ class Page(tk.Frame):
 # 对应 Swift: CustomTopBar
 # =========================
 
+def _rounded_rectangle(canvas, x1, y1, x2, y2, radius, **kwargs):
+    radius = min(radius, abs(x2 - x1) / 2, abs(y2 - y1) / 2)
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
 class CustomTopBar(tk.Frame):
     """
     对应 Swift 里的 CustomTopBar。
@@ -156,27 +175,50 @@ class CustomTopBar(tk.Frame):
         super().__init__(
             master,
             height=self.HEIGHT,
-            bg=COLOR_TOP_BAR_BG,
-            highlightbackground="#888888",
-            highlightthickness=1,
+            bg=COLOR_PAGE_BG,
+            bd=0,
+            highlightthickness=0,
         )
 
         self.pack_propagate(False)
+        self.on_back = on_back
 
-        self.back_button = tk.Button(
+        self.canvas = tk.Canvas(
             self,
-            text="‹",
-            command=on_back,
-            bg=COLOR_TOP_BAR_BG,
-            fg=COLOR_PURPLE,
-            activebackground=COLOR_TOP_BAR_BG,
-            activeforeground=COLOR_PURPLE,
+            bg=COLOR_PAGE_BG,
             bd=0,
-            relief=tk.FLAT,
-            font=("Arial", 28, "bold"),
-            width=3,
+            highlightthickness=0,
+            cursor="hand2",
         )
-        self.back_button.pack(side=tk.LEFT, padx=12)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Configure>", self._redraw)
+        self.canvas.bind("<Button-1>", self._click)
+
+    def _redraw(self, _event=None):
+        self.canvas.delete("all")
+        width = max(1, self.canvas.winfo_width())
+        height = max(1, self.canvas.winfo_height())
+        _rounded_rectangle(
+            self.canvas,
+            1,
+            1,
+            width - 2,
+            height - 2,
+            16,
+            fill=COLOR_TOP_BAR_BG,
+            outline="#8390a0",
+            width=1,
+        )
+        self.canvas.create_text(
+            30,
+            height / 2,
+            text="‹",
+            fill=COLOR_PURPLE,
+            font=("Arial", 30, "normal"),
+        )
+
+    def _click(self, _event=None):
+        self.on_back()
 
 
 # 为了和之前代码兼容，保留 TopBar 这个名字
