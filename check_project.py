@@ -104,9 +104,9 @@ def main():
     print("导入失败模块数量：", import_errors)
 
     if compatibility_count == 0 and syntax_errors == 0 and import_errors == 0:
-        print("\n✅ 基础检查通过。现在可以运行：python3 main.py")
+        print("\n✅ 基础检查通过。现在可以运行：streamlit run streamlit_app.py")
     else:
-        print("\n⚠️ 先修上面列出的错误，再运行 python3 main.py")
+        print("\n⚠️ 先修上面列出的错误，再运行 streamlit run streamlit_app.py")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Optional
+
+from app.config import AppStorageKeys, settings
+from app.models import SystemPromptRecord, now_iso
+
+
+HIDDEN_PASSCODE = "ly123"
+
+
+@dataclass
+class PromptState:
+    hidden_space: bool
+    records: list[SystemPromptRecord]
+    hidden_records: list[SystemPromptRecord]
+    next_index: int
+    hidden_next_index: int
+    selected_record_id: str
+
+
+def _decode_records(raw) -> list[SystemPromptRecord]:
+    if not raw:
+        return []
+
+    if isinstance(raw, list):
+        items = raw
+    else:
+        try:
+            items = json.loads(raw)
+        except Exception:
+            return []
+
+    records: list[SystemPromptRecord] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        records.append(SystemPromptRecord.from_dict(item))
+    return records
+
+
+def _encode_records(records: list[SystemPromptRecord]) -> str:
+    return json.dumps([r.to_dict() for r in records], ensure_ascii=False)
+
+
+def _persist(state: PromptState):
+    settings.set(AppStorageKeys.SYSTEM_PROMPT_RECORDS, _encode_records(state.records))
+    settings.set(AppStorageKeys.SYSTEM_PROMPT_RECORD_NEXT_INDEX, int(state.next_index))
+    settings.set(AppStorageKeys.HIDDEN_SYSTEM_PROMPT_RECORDS, _encode_records(state.hidden_records))
+    settings.set(AppStorageKeys.HIDDEN_SYSTEM_PROMPT_RECORD_NEXT_INDEX, int(state.hidden_next_index))
+
+
+def load_state(hidden_space: bool = False) -> PromptState:
+    state = PromptState(
+        hidden_space=bool(hidden_space),
+        records=_decode_records(settings.get(AppStorageKeys.SYSTEM_PROMPT_RECORDS, "")),
+        hidden_records=_decode_records(settings.get(AppStorageKeys.HIDDEN_SYSTEM_PROMPT_RECORDS, "")),
+        next_index=max(1, int(settings.get(AppStorageKeys.SYSTEM_PROMPT_RECORD_NEXT_INDEX, 1) or 1)),
+        hidden_next_index=max(1, int(settings.get(AppStorageKeys.HIDDEN_SYSTEM_PROMPT_RECORD_NEXT_INDEX, 1) or 1)),
+        selected_record_id=str(settings.get(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "") or ""),
+    )
+
+    if not state.records:
+        legacy_prompt = str(settings.get(AppStorageKeys.SYSTEM_PROMPT, "") or "").strip()
+        if legacy_prompt:
+            record = SystemPromptRecord(
+                title="记录1",
+                prompt=legacy_prompt,
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+            state.records = [record]
+            state.selected_record_id = record.id
+            state.next_index = max(state.next_index, 2)
+            _persist(state)
+
+            settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, record.id)
+            settings.set(AppStorageKeys.SYSTEM_PROMPT, record.prompt)
+
+    return state
+
+
+def visible_records(state: PromptState) -> list[SystemPromptRecord]:
+    if state.hidden_space:
+        return state.records + state.hidden_records
+    return state.records
+
+
+def record_space(state: PromptState, record_id: str) -> Optional[str]:
+    for record in state.hidden_records:
+        if record.id == record_id:
+            return "hidden"
+    for record in state.records:
+        if record.id == record_id:
+            return "normal"
+    return None
+
+
+def get_record(state: PromptState, record_id: str) -> Optional[SystemPromptRecord]:
+    for record in state.records + state.hidden_records:
+        if record.id == record_id:
+            return record
+    return None
+
+
+def unlock_hidden_space(state: PromptState, passcode: str) -> PromptState:
+    if str(passcode or "").strip() == HIDDEN_PASSCODE:
+        state.hidden_space = True
+    return state
+
+
+def save_prompt(
+    state: PromptState,
+    *,
+    record_id: str,
+    title: str,
+    prompt: str,
+) -> PromptState:
+    record_id = str(record_id or "").strip()
+    title = str(title or "").strip()
+    prompt = str(prompt or "").strip()
+
+    if not prompt:
+        return state
+
+    existing = get_record(state, record_id) if record_id else None
+
+    if existing is not None:
+        if title:
+            existing.title = title
+        existing.prompt = prompt
+        existing.updated_at = now_iso()
+        settings.set(AppStorageKeys.SYSTEM_PROMPT, existing.prompt)
+        settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, existing.id)
+        state.selected_record_id = existing.id
+        _persist(state)
+        return state
+
+    if state.hidden_space:
+        new_title = title or f"隐藏记录{state.hidden_next_index}"
+        state.hidden_next_index += 1
+    else:
+        new_title = title or f"记录{state.next_index}"
+        state.next_index += 1
+
+    record = SystemPromptRecord(
+        title=new_title,
+        prompt=prompt,
+        created_at=now_iso(),
+        updated_at=now_iso(),
+    )
+
+    if state.hidden_space:
+        state.hidden_records.append(record)
+    else:
+        state.records.append(record)
+
+    state.selected_record_id = record.id
+    settings.set(AppStorageKeys.SYSTEM_PROMPT, record.prompt)
+    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, record.id)
+    _persist(state)
+    return state
+
+
+def delete_record(state: PromptState, record_id: str) -> PromptState:
+    record_id = str(record_id or "").strip()
+    if not record_id:
+        return state
+
+    state.records = [r for r in state.records if r.id != record_id]
+    state.hidden_records = [r for r in state.hidden_records if r.id != record_id]
+
+    if str(settings.get(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "") or "") == record_id:
+        settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "")
+        settings.set(AppStorageKeys.SYSTEM_PROMPT, "")
+        state.selected_record_id = ""
+
+    _persist(state)
+    return state
+
