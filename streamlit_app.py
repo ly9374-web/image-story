@@ -1,5 +1,6 @@
 import streamlit as st
 
+from app.ui.theme import apply_dark_mode
 from web.nav import back, goto, nav_init, nav_state
 from web.pages.home import render as render_home
 from web.pages.model_settings import render as render_model_settings
@@ -41,6 +42,7 @@ def _render_sidebar():
 
 def main():
     st.set_page_config(page_title="图像小说 Python", layout="wide")
+    apply_dark_mode()
     nav_init(default_page="home")
 
     _render_sidebar()
@@ -52,4 +54,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

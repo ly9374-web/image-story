@@ -6,9 +6,7 @@ from dataclasses import dataclass
 
 from app.config import AppStorageKeys, settings
 from app.models import StoredImageURLRecord, now_iso
-
-
-HIDDEN_PASSCODE = "ly123"
+from app.services import hidden_space
 
 
 @dataclass
@@ -72,7 +70,7 @@ def add_url(state: StoredURLState, url_or_passcode: str) -> StoredURLState:
     if not text:
         return state
 
-    if text == HIDDEN_PASSCODE:
+    if hidden_space.is_valid_passcode(text):
         state.hidden_space = True
         return state
 
@@ -113,4 +111,3 @@ def delete_url(state: StoredURLState, record_id: str) -> StoredURLState:
     state.hidden_records = [r for r in state.hidden_records if r.id != record_id]
     persist_state(state)
     return state
-

@@ -6,9 +6,7 @@ from typing import Optional
 
 from app.config import AppStorageKeys, settings
 from app.models import SystemPromptRecord, now_iso
-
-
-HIDDEN_PASSCODE = "ly123"
+from app.services import hidden_space
 
 
 @dataclass
@@ -106,7 +104,7 @@ def get_record(state: PromptState, record_id: str) -> Optional[SystemPromptRecor
 
 
 def unlock_hidden_space(state: PromptState, passcode: str) -> PromptState:
-    if str(passcode or "").strip() == HIDDEN_PASSCODE:
+    if hidden_space.is_valid_passcode(passcode):
         state.hidden_space = True
     return state
 
@@ -179,4 +177,3 @@ def delete_record(state: PromptState, record_id: str) -> PromptState:
 
     _persist(state)
     return state
-

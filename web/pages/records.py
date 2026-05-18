@@ -1,6 +1,7 @@
 import streamlit as st
 
 from app.services import chat_records
+from app.services import hidden_space
 from web.nav import goto
 
 
@@ -13,7 +14,22 @@ def _label(item):
 def render():
     st.title("记录")
 
+    if "records_hidden_space" not in st.session_state:
+        st.session_state.records_hidden_space = False
+
+    with st.sidebar:
+        st.subheader("聊天记录")
+        passcode = st.text_input("隐藏空间口令", type="password", placeholder="输入口令显示隐藏记录")
+        if passcode:
+            st.session_state.records_hidden_space = hidden_space.unlock(
+                bool(st.session_state.records_hidden_space),
+                passcode,
+            )
+        st.caption("提示：把聊天标题改成以「隐藏：」开头，可在未解锁时隐藏。")
+
     items = chat_records.load_index_sorted()
+    if not bool(st.session_state.records_hidden_space):
+        items = [i for i in items if not str(i.title or "").strip().startswith("隐藏：")]
 
     if not items:
         st.info("暂无聊天记录。去「开始」发一条消息后会自动保存。")
