@@ -22,3 +22,10 @@ python main.py
 - 这个版本是 Python 桌面版，不是 iOS App。
 - SwiftUI 的页面结构被转换成 tkinter 页面。
 - API 调用、聊天记录、模型设置、Page2 主聊天页已经拆成单独文件。
+# Streamlit 版本（进行中）
+
+运行：
+
+```bash
+streamlit run streamlit_app.py
+```
