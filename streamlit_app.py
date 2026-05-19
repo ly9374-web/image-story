@@ -7,9 +7,11 @@ from web.pages.model_settings import render as render_model_settings
 from web.pages.page2 import render as render_page2
 from web.pages.records import render as render_records
 from web.pages.settings import render as render_settings
+from web.pages.signin_page import render as render_signin
 
 
 PAGES = {
+    "signin": ("登录", render_signin),
     "home": ("首页", render_home),
     "main": ("开始", render_page2),
     "settings": ("设置", render_settings),
@@ -22,7 +24,7 @@ def _render_sidebar():
     st.sidebar.header("图像小说 Python")
 
     current = nav_state().page
-    options = [key for key in PAGES.keys()]
+    options = [key for key in PAGES.keys() if key != "signin"]
     labels = {key: PAGES[key][0] for key in options}
 
     selected = st.sidebar.radio(
@@ -43,9 +45,16 @@ def _render_sidebar():
 def main():
     st.set_page_config(page_title="图像小说 Python", layout="wide")
     apply_dark_mode()
-    nav_init(default_page="home")
+    nav_init(default_page="signin")
 
-    _render_sidebar()
+    if "auth_ok" not in st.session_state:
+        st.session_state.auth_ok = False
+
+    if nav_state().page != "signin" and not bool(st.session_state.auth_ok):
+        goto("signin", push_history=False)
+
+    if nav_state().page != "signin":
+        _render_sidebar()
 
     page = nav_state().page
     _, render = PAGES.get(page, PAGES["home"])

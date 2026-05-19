@@ -23,7 +23,7 @@ from app.models import (
 from app.storage import ChatRecordStore
 
 
-DEFAULT_SYSTEM_PROMPT = "你是一个有帮助的 AI 助手。"
+DEFAULT_SYSTEM_PROMPT = ""
 
 
 @dataclass
