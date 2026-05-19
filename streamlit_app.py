@@ -70,13 +70,6 @@ def main():
         and str(st.session_state.auth_mode or "").strip().lower() == "guest"
         and nav_state().page != "signin"
     ):
-        try:
-            from streamlit_autorefresh import st_autorefresh  # type: ignore
-
-            st_autorefresh(interval=1000, key="guest_countdown_refresh")
-        except ImportError:
-            st.info("游客倒计时需要安装依赖：pip install streamlit-autorefresh")
-
         expires_at = float(st.session_state.get("guest_expires_at") or 0.0)
         remaining = int(expires_at - time.time())
         if remaining <= 0:
@@ -90,6 +83,13 @@ def main():
         mm = max(0, remaining) // 60
         ss = max(0, remaining) % 60
         clock = f"{mm:02d}:{ss:02d}"
+
+        try:
+            from streamlit import st_autorefresh  # type: ignore
+
+            st_autorefresh(interval=1000, key="guest_countdown_refresh")
+        except Exception:
+            pass
 
         st.markdown(
             """
