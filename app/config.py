@@ -45,6 +45,7 @@ class AppStorageKeys:
     CHAT_RECORDS = "chatRecords"
     CHAT_RECORD_NEXT_INDEX = "chatRecordNextIndex"
     CHAT_RECORD_INDEX = "chatRecordIndex"
+    GUEST_CHAT_RECORD_INDEX = "guestChatRecordIndex"
 
     STORED_IMAGE_URL_RECORDS = "storedImageURLRecords"
     STORED_IMAGE_URL_RECORD_NEXT_INDEX = "storedImageURLRecordNextIndex"

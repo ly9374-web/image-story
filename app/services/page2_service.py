@@ -250,6 +250,7 @@ def upsert_chat_record(
     turns: list[Page2ConversationTurn],
     generated_media: list[GeneratedImageRecord],
     system_prompt: str,
+    scope: str | None = None,
 ) -> str:
     if not turns and not generated_media:
         return str(record_id or "").strip()
@@ -259,7 +260,7 @@ def upsert_chat_record(
 
     existing_title = None
     existing_created_at = None
-    for item in ChatRecordStore.load_index():
+    for item in ChatRecordStore.load_index(scope=scope):
         if item.id == record_id:
             existing_title = item.title
             existing_created_at = item.created_at
@@ -274,6 +275,5 @@ def upsert_chat_record(
         created_at=existing_created_at or now,
         updated_at=now,
     )
-    ChatRecordStore.save_or_update_record(record)
+    ChatRecordStore.save_or_update_record(record, scope=scope)
     return record_id
-

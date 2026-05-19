@@ -38,40 +38,76 @@ FIELDS = [
 ]
 
 
+def _pending_key(storage_key: str) -> str:
+    return f"model_settings_pending_{storage_key}"
+
+
+def _flash_key(storage_key: str) -> str:
+    return f"model_settings_flash_{storage_key}"
+
+
+def _save_single(storage_key: str):
+    pending = str(st.session_state.get(_pending_key(storage_key), "") or "").strip()
+    if not pending:
+        return
+    settings.set(storage_key, pending)
+    st.session_state[_pending_key(storage_key)] = ""
+    st.session_state[_flash_key(storage_key)] = "saved"
+
+
+def _delete_single(storage_key: str):
+    settings.set(storage_key, "")
+    st.session_state[_pending_key(storage_key)] = ""
+    st.session_state[_flash_key(storage_key)] = "deleted"
+
+
 def render():
     st.title("模型")
 
-    with st.form("model_settings_form", border=True):
-        values = {}
-        for label_text, key, placeholder in FIELDS:
-            values[key] = st.text_input(
-                label_text,
-                value=str(settings.get(key, "") or ""),
+    st.caption("已保存的 Key 不会在 UI 中显示；如需更新请重新输入，或点击删除清空。")
+
+    debug_enabled = st.checkbox(
+        "打印调试日志",
+        value=settings.bool(AppStorageKeys.DEBUG_LOG_ENABLED, False),
+        help="关闭后不会在控制台打印请求体、响应体和调试信息，可减少卡顿。",
+    )
+
+    st.subheader("API Keys")
+    st.caption("在输入框里按回车会立即保存该 Key。")
+
+    for label_text, key, placeholder in FIELDS:
+        st.markdown(f"**{label_text}**")
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.text_input(
+                "输入新值（回车保存；留空表示不修改）",
+                value=str(st.session_state.get(_pending_key(key), "") or ""),
                 placeholder=placeholder,
                 type="password",
+                label_visibility="collapsed",
+                key=_pending_key(key),
+                on_change=_save_single,
+                args=(key,),
+            )
+        with c2:
+            st.button(
+                "删除",
+                use_container_width=True,
+                type="secondary",
+                key=f"model_settings_delete_btn_{key}",
+                on_click=_delete_single,
+                args=(key,),
             )
 
-        debug_enabled = st.checkbox(
-            "打印调试日志",
-            value=settings.bool(AppStorageKeys.DEBUG_LOG_ENABLED, False),
-            help="关闭后不会在控制台打印请求体、响应体和调试信息，可减少卡顿。",
-        )
+        flash = st.session_state.pop(_flash_key(key), None)
+        if flash == "saved":
+            st.success("已保存")
+        elif flash == "deleted":
+            st.success("已删除")
 
-        c1, c2 = st.columns(2)
-        with c1:
-            cancel = st.form_submit_button("取消", use_container_width=True)
-        with c2:
-            save = st.form_submit_button("确定", use_container_width=True, type="primary")
+        st.divider()
 
-    if cancel:
-        back()
-        return
-
-    if save:
-        for _label_text, key, _placeholder in FIELDS:
-            settings.set(key, str(values.get(key, "") or "").strip())
+    st.subheader("其他")
+    if st.button("返回", use_container_width=True):
         settings.set(AppStorageKeys.DEBUG_LOG_ENABLED, bool(debug_enabled))
-        st.success("已保存")
-
         back()
-

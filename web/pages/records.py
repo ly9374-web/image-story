@@ -27,7 +27,9 @@ def render():
             )
         st.caption("提示：把聊天标题改成以「隐藏：」开头，可在未解锁时隐藏。")
 
-    items = chat_records.load_index_sorted()
+    mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
+    scope = "guest" if mode == "guest" else None
+    items = chat_records.load_index_sorted(scope=scope)
     if not bool(st.session_state.records_hidden_space):
         items = [i for i in items if not str(i.title or "").strip().startswith("隐藏：")]
 
@@ -54,11 +56,11 @@ def render():
     with c2:
         new_title = st.text_input("重命名", value=item.title or "", key="records_rename_title")
         if st.button("保存名称", use_container_width=True):
-            chat_records.rename_record(item.id, new_title)
+            chat_records.rename_record(item.id, new_title, scope=scope)
             st.success("已重命名")
             st.rerun()
     with c3:
         if st.button("删除", use_container_width=True):
-            chat_records.delete_record(item.id)
+            chat_records.delete_record(item.id, scope=scope)
             st.success("已删除")
             st.rerun()

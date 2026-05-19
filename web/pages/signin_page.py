@@ -3,6 +3,8 @@ from __future__ import annotations
 import streamlit as st
 
 from web.nav import goto
+from app.storage import ChatRecordStore
+import time
 
 
 _PASSCODE = "1369"
@@ -145,11 +147,31 @@ section.main > div.block-container > [data-testid="stVerticalBlock"] {
 
     if guest:
         st.session_state.auth_ok = True
+        st.session_state.auth_mode = "guest"
+        st.session_state.user_id = ""
+        st.session_state.guest_expires_at = time.time() + 10 * 60
+        ChatRecordStore.clear_scope(ChatRecordStore.GUEST_SCOPE)
+        for key in [
+            "page2_record_id",
+            "page2_loaded_record_id",
+            "page2_turns",
+            "page2_generated_media",
+            "page2_selected_media_id",
+            "page2_image_prompt",
+            "page2_image_prompt_mode",
+            "page2_image_prompt_subject",
+            "page2_url_hidden_space",
+        ]:
+            if key in st.session_state:
+                st.session_state.pop(key, None)
         goto("home", push_history=False)
 
     if login:
         if str(code or "").strip() == _PASSCODE:
             st.session_state.auth_ok = True
+            st.session_state.auth_mode = "user"
+            st.session_state.user_id = "1"
+            st.session_state.pop("guest_expires_at", None)
             goto("home", push_history=False)
         else:
             _toast_error("密码错误")

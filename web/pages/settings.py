@@ -14,6 +14,9 @@ def _label_for_record(state: system_prompts.PromptState, record: SystemPromptRec
 def render():
     st.title("设置")
 
+    mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
+    is_guest = mode == "guest"
+
     if "settings_hidden_space" not in st.session_state:
         st.session_state.settings_hidden_space = False
 
@@ -52,19 +55,29 @@ def render():
             )
 
     selected_record = record_by_label.get(selected_label) if selected_label else None
+    if is_guest and selected_record is not None:
+        if selected_record.id and selected_record.id != state.selected_record_id:
+            settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, selected_record.id)
+            settings.set(AppStorageKeys.SYSTEM_PROMPT, str(selected_record.prompt or ""))
+            state.selected_record_id = selected_record.id
 
     with c2:
-        st.subheader("编辑")
+        st.subheader("编辑" if not is_guest else "预览")
         title_value = selected_record.title if selected_record else ""
         prompt_value = selected_record.prompt if selected_record else str(settings.get(AppStorageKeys.SYSTEM_PROMPT, "") or "")
 
-        title = st.text_input("记录名称", value=title_value, placeholder="留空将使用默认名称")
-        prompt = st.text_area("prompt", value=prompt_value, height=320)
+        title = st.text_input(
+            "记录名称",
+            value=title_value,
+            placeholder="留空将使用默认名称",
+            disabled=is_guest,
+        )
+        prompt = st.text_area("prompt", value=prompt_value, height=320, disabled=is_guest)
 
         b1, b2, b3 = st.columns(3)
-        save = b1.button("保存", type="primary", use_container_width=True)
-        new_record = b2.button("另存为新记录", use_container_width=True)
-        delete = b3.button("删除", use_container_width=True, disabled=not selected_record)
+        save = b1.button("保存", type="primary", use_container_width=True, disabled=is_guest)
+        new_record = b2.button("另存为新记录", use_container_width=True, disabled=is_guest)
+        delete = b3.button("删除", use_container_width=True, disabled=is_guest or not selected_record)
 
         if save:
             state = system_prompts.save_prompt(

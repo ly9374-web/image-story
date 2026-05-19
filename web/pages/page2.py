@@ -7,9 +7,15 @@ from pathlib import Path
 import streamlit as st
 
 from app.api.media_clients import CloudinaryUploader
+from app.config import AppStorageKeys, settings
 from app.models import GeneratedMediaKind, Page2ConversationTurn
 from app.services import chat_records, page2_service, stored_urls, system_prompts
 from web.nav import get_arg, goto
+
+
+def _chat_scope() -> str | None:
+    mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
+    return "guest" if mode == "guest" else None
 
 
 def _decode_image_base64(b64: str) -> bytes:
@@ -36,7 +42,7 @@ def _load_record_from_nav_if_needed():
     if st.session_state.page2_loaded_record_id == record_id:
         return
 
-    record = chat_records.load_record_by_id(record_id)
+    record = chat_records.load_record_by_id(record_id, scope=_chat_scope())
     if record is None:
         st.warning("记录不存在或加载失败。")
         return
@@ -67,6 +73,7 @@ def _upsert_record():
         turns=st.session_state.page2_turns,
         generated_media=st.session_state.page2_generated_media,
         system_prompt=ctx.system_prompt,
+        scope=_chat_scope(),
     )
 
 
@@ -97,10 +104,17 @@ def _render_sidebar_context():
             for record in prompt_records:
                 if record.title == chosen:
                     ctx.system_prompt = record.prompt
+                    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, record.id)
+                    settings.set(AppStorageKeys.SYSTEM_PROMPT, record.prompt)
                     break
+            page2_service.save_context_to_settings(ctx)
 
         with st.form("page2_context_form", border=True):
-            system_prompt = st.text_area("system prompt", value=ctx.system_prompt, height=180)
+            if _chat_scope() == "guest":
+                st.text_area("system prompt（游客仅可选择）", value=ctx.system_prompt, height=180, disabled=True)
+                system_prompt = ctx.system_prompt
+            else:
+                system_prompt = st.text_area("system prompt", value=ctx.system_prompt, height=180)
             context_turn_count = st.number_input("上下文轮数", min_value=0, max_value=50, value=int(ctx.context_turn_count))
             selected_chat_model = st.selectbox(
                 "聊天模型",
@@ -121,7 +135,8 @@ def _render_sidebar_context():
             saved = st.form_submit_button("保存", use_container_width=True, type="primary")
 
         if saved:
-            ctx.system_prompt = system_prompt
+            if _chat_scope() != "guest":
+                ctx.system_prompt = system_prompt
             ctx.context_turn_count = int(context_turn_count)
             ctx.selected_chat_model = selected_chat_model
             ctx.temperature = float(temperature)
