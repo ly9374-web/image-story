@@ -20,6 +20,54 @@ PAGES = {
     "modelSettings": ("模型", render_model_settings),
 }
 
+_GUEST_COUNTDOWN_CSS = """
+<style>
+.ly-guest-countdown {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.ly-guest-countdown > div {
+  pointer-events: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: #e5e7eb;
+  font-size: 14px;
+}
+</style>
+"""
+
+
+@st.fragment(run_every=1)
+def _render_guest_countdown():
+    expires_at = float(st.session_state.get("guest_expires_at") or 0.0)
+    remaining = int(expires_at - time.time())
+    if remaining <= 0:
+        st.session_state.auth_ok = False
+        st.session_state.auth_mode = ""
+        st.session_state.user_id = ""
+        st.session_state.pop("guest_expires_at", None)
+        st.warning("游客试用已结束，请重新登录。")
+        goto("signin", push_history=False)
+        st.rerun()
+
+    mm = remaining // 60
+    ss = remaining % 60
+    clock = f"{mm:02d}:{ss:02d}"
+
+    st.markdown(_GUEST_COUNTDOWN_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="ly-guest-countdown"><div>此次游客试用还剩 {clock}</div></div>',
+        unsafe_allow_html=True,
+    )
+
 
 def _render_sidebar():
     st.sidebar.header("图像小说 Python")
@@ -64,63 +112,13 @@ def main():
     if nav_state().page != "signin" and not bool(st.session_state.auth_ok):
         goto("signin", push_history=False)
 
-    # Guest 10-minute countdown (auto-refresh every second)
+    # Guest 10-minute countdown (fragment refresh every second, not full-page rerun)
     if (
         bool(st.session_state.auth_ok)
         and str(st.session_state.auth_mode or "").strip().lower() == "guest"
         and nav_state().page != "signin"
     ):
-        expires_at = float(st.session_state.get("guest_expires_at") or 0.0)
-        remaining = int(expires_at - time.time())
-        if remaining <= 0:
-            st.session_state.auth_ok = False
-            st.session_state.auth_mode = ""
-            st.session_state.user_id = ""
-            st.session_state.pop("guest_expires_at", None)
-            st.warning("游客试用已结束，请重新登录。")
-            goto("signin", push_history=False)
-
-        mm = max(0, remaining) // 60
-        ss = max(0, remaining) % 60
-        clock = f"{mm:02d}:{ss:02d}"
-
-        try:
-            from streamlit import st_autorefresh  # type: ignore
-
-            st_autorefresh(interval=1000, key="guest_countdown_refresh")
-        except Exception:
-            pass
-
-        st.markdown(
-            """
-<style>
-.ly-guest-countdown {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 10px;
-  z-index: 9999;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-.ly-guest-countdown > div {
-  pointer-events: none;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  color: #e5e7eb;
-  font-size: 14px;
-}
-</style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f'<div class="ly-guest-countdown"><div>此次游客试用还剩 {clock}</div></div>',
-            unsafe_allow_html=True,
-        )
+        _render_guest_countdown()
 
     if nav_state().page == "modelSettings" and str(st.session_state.auth_mode or "").strip().lower() == "guest":
         st.warning("游客模式无法访问「模型」。")
