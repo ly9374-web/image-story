@@ -148,29 +148,34 @@ def _render_sidebar_context():
 
 
 def _render_chat_column():
-    st.subheader("聊天")
-
     turns = st.session_state.page2_turns
-    for turn in turns:
-        with st.chat_message("user"):
-            st.markdown(turn.user_message or "")
-        if turn.assistant_message is not None:
-            with st.chat_message("assistant"):
-                st.markdown(turn.assistant_message or "")
 
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button("撤销最后一条", use_container_width=True, disabled=not turns):
-            st.session_state.page2_turns = turns[:-1]
-            _upsert_record()
-            st.rerun()
-    with c2:
-        if st.button("清空对话", use_container_width=True, disabled=not turns):
-            st.session_state.page2_turns = []
-            _upsert_record()
-            st.rerun()
+    with st.container(key="page2_chat_canvas"):
+        history = st.container(key="page2_chat_history")
+        with history:
+            for turn in turns:
+                with st.chat_message("user"):
+                    st.markdown(turn.user_message or "")
+                if turn.assistant_message is not None:
+                    with st.chat_message("assistant"):
+                        st.markdown(turn.assistant_message or "")
 
-    user_text = st.chat_input("输入消息并回车发送")
+        user_text = st.chat_input("输入消息并回车发送", key="page2_chat_input")
+
+    undo_clicked = st.button(
+        "",
+        key="page2_chat_undo_btn",
+        help=None,
+        icon=":material/undo:",
+        type="tertiary",
+        disabled=not bool(turns),
+        use_container_width=True,
+    )
+    if undo_clicked and turns:
+        st.session_state.page2_turns = turns[:-1]
+        _upsert_record()
+        st.rerun()
+
     if not user_text:
         return
 
@@ -401,8 +406,17 @@ def _render_media_column():
 def render():
     _ensure_state()
     _load_record_from_nav_if_needed()
-
-    st.title("开始")
+    st.markdown(
+        """
+<style>
+/* Page2: move content to top (remove Streamlit's default top padding) */
+section[data-testid="stMain"] .block-container {
+  padding-top: 33px !important;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     _render_sidebar_context()
 

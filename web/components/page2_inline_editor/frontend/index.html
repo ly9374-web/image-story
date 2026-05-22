@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>page2_inline_editor</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      function post(type, payload) {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type,
+            ...payload,
+          },
+          "*"
+        )
+      }
+
+      function decodePayload(encoded) {
+        try {
+          const binary = atob(encoded || "")
+          const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0))
+          return new TextDecoder("utf-8").decode(bytes)
+        } catch (error) {
+          return ""
+        }
+      }
+
+      function bindDblClickHandlers() {
+        const parentDoc = window.parent && window.parent.document
+        if (!parentDoc) {
+          return
+        }
+
+        const markers = parentDoc.querySelectorAll(".page2-turn-marker[data-turn][data-role]")
+        markers.forEach((marker) => {
+          if (marker.dataset.bound === "1") {
+            return
+          }
+
+          const bubble =
+            marker.closest('[data-testid="stChatMessageContent"]') ||
+            marker.parentElement ||
+            marker
+
+          bubble.addEventListener("dblclick", (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+
+            const text = decodePayload(marker.dataset.payload)
+            const nextText = window.prompt("Edit message:", text)
+            if (nextText === null) {
+              return
+            }
+
+            post("streamlit:setComponentValue", {
+              value: {
+                turn_index: Number(marker.dataset.turn),
+                role: String(marker.dataset.role || ""),
+                text: String(nextText),
+              },
+              dataType: "json",
+            })
+          })
+
+          marker.dataset.bound = "1"
+        })
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.type !== "streamlit:render") {
+          return
+        }
+        bindDblClickHandlers()
+        post("streamlit:setFrameHeight", { height: 0 })
+      })
+
+      post("streamlit:componentReady", { apiVersion: 1 })
+      bindDblClickHandlers()
+      post("streamlit:setFrameHeight", { height: 0 })
+    </script>
+  </body>
+</html>
