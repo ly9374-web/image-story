@@ -83,6 +83,14 @@ def download_url_as_base64(url):
     return base64.b64encode(response.content).decode("ascii")
 
 
+def try_download_url_as_base64(url):
+    try:
+        return download_url_as_base64(url)
+    except Exception as exc:
+        debug_log("Failed to cache image URL as base64:", str(exc))
+        return None
+
+
 class GrokImageAPIClient:
     IMAGE_GENERATION_URL = "https://api.x.ai/v1/images/generations"
     IMAGE_EDIT_URL = "https://api.x.ai/v1/images/edits"
@@ -247,6 +255,36 @@ ReplicateImageClient = ReplicateImageAPIClient
 class DomoAIClient:
     CREATE_IMAGE_TO_VIDEO_URL = "https://api.domoai.com/v1/video/image2video"
 
+    @staticmethod
+    def _extract_video_url(data):
+        if not isinstance(data, dict):
+            return None
+
+        direct = (
+            data.get("video_url")
+            or data.get("output_url")
+            or data.get("url")
+            or data.get("result")
+        )
+
+        if isinstance(direct, list) and direct:
+            direct = direct[0]
+
+        if isinstance(direct, str) and direct.startswith("http"):
+            return direct
+
+        output_videos = data.get("output_videos") or data.get("outputVideos")
+        if isinstance(output_videos, list) and output_videos:
+            first = output_videos[0]
+            if isinstance(first, dict):
+                nested_url = first.get("url") or first.get("video_url")
+                if isinstance(nested_url, str) and nested_url.startswith("http"):
+                    return nested_url
+            if isinstance(first, str) and first.startswith("http"):
+                return first
+
+        return None
+
     @classmethod
     def create_image_to_video_task_with_base64(cls, image_base64, prompt, seconds):
         image_base64 = str(image_base64 or "").strip()
@@ -346,23 +384,10 @@ class DomoAIClient:
 
             if isinstance(data_object, dict):
                 status = str(data_object.get("status") or "").lower()
-                video_url = (
-                    data_object.get("video_url")
-                    or data_object.get("output_url")
-                    or data_object.get("url")
-                    or data_object.get("result")
-                )
+                video_url = cls._extract_video_url(data_object)
             else:
                 status = str(data.get("status") or "").lower()
-                video_url = (
-                    data.get("video_url")
-                    or data.get("output_url")
-                    or data.get("url")
-                    or data.get("result")
-                )
-
-            if isinstance(video_url, list) and video_url:
-                video_url = video_url[0]
+                video_url = cls._extract_video_url(data)
 
             if isinstance(video_url, str) and video_url.startswith("http"):
                 return video_url
@@ -379,6 +404,35 @@ class ZhipuVideoClient:
     CREATE_VIDEO_URL = "https://open.bigmodel.cn/api/paas/v4/videos/generations"
     POLL_URL_PREFIX = "https://open.bigmodel.cn/api/paas/v4/async-result/"
 
+    @staticmethod
+    def _extract_video_url(data):
+        if not isinstance(data, dict):
+            return None
+
+        direct = (
+            data.get("video_url")
+            or data.get("output")
+            or data.get("result")
+        )
+
+        if isinstance(direct, list) and direct:
+            direct = direct[0]
+
+        if isinstance(direct, str) and direct.startswith("http"):
+            return direct
+
+        video_result = data.get("video_result") or data.get("videoResult")
+        if isinstance(video_result, list) and video_result:
+            first = video_result[0]
+            if isinstance(first, dict):
+                nested_url = first.get("url") or first.get("video_url")
+                if isinstance(nested_url, str) and nested_url.startswith("http"):
+                    return nested_url
+            if isinstance(first, str) and first.startswith("http"):
+                return first
+
+        return None
+
     @classmethod
     def create_image_to_video_task(cls, image_url, prompt, seconds):
         image_url = str(image_url or "").strip()
@@ -392,16 +446,22 @@ class ZhipuVideoClient:
         except Exception:
             raise ValueError("seconds 必须是整数")
 
+        if seconds not in (5, 10):
+            raise ValueError("智谱视频时长只支持 5 秒或 10 秒。")
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer " + ZhipuConfig.api_key(),
         }
 
         body = {
-            "model": "cogvideox-flash",
+            "model": "cogvideox-3",
             "image_url": image_url,
             "prompt": prompt,
             "duration": seconds,
+            "quality": "speed",
+            "with_audio": False,
+            "fps": 30,
         }
 
         debug_log("====== Zhipu Image2Video Request ======")
@@ -460,14 +520,7 @@ class ZhipuVideoClient:
 
             data = response.json()
 
-            video_url = (
-                data.get("video_url")
-                or data.get("output")
-                or data.get("result")
-            )
-
-            if isinstance(video_url, list) and video_url:
-                video_url = video_url[0]
+            video_url = cls._extract_video_url(data)
 
             if isinstance(video_url, str) and video_url.startswith("http"):
                 return video_url
@@ -485,16 +538,15 @@ class ZhipuVideoClient:
 
 
 class CloudinaryUploader:
-    @classmethod
-    def upload_image(cls, file_path):
-        file_path = Path(file_path)
+    DEFAULT_CLOUD_NAME = "dxi0op4os"
+    DEFAULT_API_KEY = "246111749763816"
+    DEFAULT_API_SECRET = "5hbNk8Vqgd9pGKmACjdfMXjJFwM"
 
-        if not file_path.exists():
-            raise FileNotFoundError(str(file_path))
-
-        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
-        api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip()
-        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+    @staticmethod
+    def _upload_files(files):
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip() or CloudinaryUploader.DEFAULT_CLOUD_NAME
+        api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip() or CloudinaryUploader.DEFAULT_API_KEY
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip() or CloudinaryUploader.DEFAULT_API_SECRET
 
         if not cloud_name or not api_key or not api_secret:
             raise RuntimeError(
@@ -503,17 +555,12 @@ class CloudinaryUploader:
 
         url = "https://api.cloudinary.com/v1_1/" + cloud_name + "/image/upload"
 
-        with file_path.open("rb") as file:
-            files = {
-                "file": file,
-            }
-
-            response = requests.post(
-                url,
-                files=files,
-                auth=(api_key, api_secret),
-                timeout=3600,
-            )
+        response = requests.post(
+            url,
+            files=files,
+            auth=(api_key, api_secret),
+            timeout=3600,
+        )
 
         debug_log("====== Cloudinary Upload HTTP Status ======")
         debug_log(response.status_code)
@@ -529,3 +576,20 @@ class CloudinaryUploader:
             raise RuntimeError("Cloudinary 未返回 secure_url: " + str(data))
 
         return secure_url
+
+    @classmethod
+    def upload_image(cls, file_path):
+        file_path = Path(file_path)
+
+        if not file_path.exists():
+            raise FileNotFoundError(str(file_path))
+
+        with file_path.open("rb") as file:
+            return cls._upload_files({"file": file})
+
+    @classmethod
+    def upload_image_bytes(cls, image_bytes, filename="image.png"):
+        if not image_bytes:
+            raise ValueError("图片数据不能为空")
+
+        return cls._upload_files({"file": (filename, image_bytes)})

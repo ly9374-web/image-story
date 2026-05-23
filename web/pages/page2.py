@@ -332,10 +332,13 @@ def _render_media_column():
         return
 
     video_prompt = st.text_input("视频 prompt", value="")
-    seconds = st.number_input("时长（秒）", min_value=1, max_value=10, value=5)
+    ctx = page2_service.load_context_from_settings()
+    if str(ctx.selected_video_generation_provider or "") == "zhipu":
+        seconds = st.selectbox("时长（秒）", options=[5, 10], index=0)
+    else:
+        seconds = st.number_input("时长（秒）", min_value=1, max_value=10, value=5)
 
     if st.button("生成视频", use_container_width=True):
-        ctx = page2_service.load_context_from_settings()
         with st.spinner("正在生成视频（可能需要较长时间）..."):
             try:
                 video_record = page2_service.generate_video_from_image(

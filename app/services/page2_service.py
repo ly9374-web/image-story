@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import uuid
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 from app.api.chat_clients import GrokAPIClient, DeepSeekAPIClient
 from app.api.media_clients import (
+    CloudinaryUploader,
     DomoAIClient,
     GrokImageAPIClient,
     ReplicateImageAPIClient,
     ZhipuVideoClient,
     download_url_as_base64,
+    try_download_url_as_base64,
 )
 from app.config import AppStorageKeys, settings
 from app.models import (
@@ -164,6 +168,9 @@ def generate_image(provider: str, prompt: str, image_urls: Optional[list[str]] =
     image_url = getattr(result, "image_url", None)
     image_base64 = getattr(result, "image_data_base64", None)
 
+    if image_url and not image_base64:
+        image_base64 = try_download_url_as_base64(image_url)
+
     return GeneratedImageRecord(
         provider=provider,
         prompt=prompt,
@@ -177,6 +184,52 @@ def generate_image(provider: str, prompt: str, image_urls: Optional[list[str]] =
         duration_seconds=None,
         video_generation_provider=None,
     )
+
+
+def _decode_image_base64(image_base64: str) -> bytes:
+    text = str(image_base64 or "").strip()
+
+    if "," in text and text.lower().startswith("data:"):
+        text = text.split(",", 1)[1].strip()
+
+    try:
+        image_bytes = base64.b64decode(text, validate=True)
+    except binascii.Error:
+        image_bytes = base64.b64decode(text)
+
+    if not image_bytes:
+        raise ValueError("图片 base64 数据为空。")
+
+    return image_bytes
+
+
+def _prepare_zhipu_cloudinary_image_url(source_record: GeneratedImageRecord) -> str:
+    if source_record.image_data_base64:
+        try:
+            image_bytes = _decode_image_base64(source_record.image_data_base64)
+        except Exception as exc:
+            raise RuntimeError("解析输入图片 base64 失败，无法上传到 Cloudinary。原始错误：" + str(exc))
+    elif source_record.image_url_string:
+        try:
+            image_base64 = download_url_as_base64(source_record.image_url_string)
+            image_bytes = _decode_image_base64(image_base64)
+        except Exception as exc:
+            raise RuntimeError(
+                "输入图片 URL 已无法访问或无法下载，无法上传到 Cloudinary。"
+                "请重新生成图片，或使用仍可访问的图片作为输入。原始错误："
+                + str(exc)
+            )
+    else:
+        raise RuntimeError("智谱图生视频需要可用的图片 URL 或 base64 图片数据。")
+
+    try:
+        return CloudinaryUploader.upload_image_bytes(image_bytes)
+    except Exception as exc:
+        raise RuntimeError(
+            "上传图片到 Cloudinary 失败，无法生成智谱视频。"
+            "请确认 CLOUDINARY_CLOUD_NAME、CLOUDINARY_API_KEY、CLOUDINARY_API_SECRET 已配置。原始错误："
+            + str(exc)
+        )
 
 
 def generate_video_from_image(
@@ -193,10 +246,9 @@ def generate_video_from_image(
     provider = str(ctx.selected_video_generation_provider or "domoai").strip()
 
     if provider == "zhipu":
-        if not source_record.image_url_string:
-            raise RuntimeError("智谱图生视频需要 http/https 图片 URL。")
+        image_reference = _prepare_zhipu_cloudinary_image_url(source_record)
         task_id = ZhipuVideoClient.create_image_to_video_task(
-            source_record.image_url_string,
+            image_reference,
             prompt,
             seconds,
         )
@@ -205,7 +257,14 @@ def generate_video_from_image(
         if source_record.image_data_base64:
             image_base64 = source_record.image_data_base64
         elif source_record.image_url_string:
-            image_base64 = download_url_as_base64(source_record.image_url_string)
+            try:
+                image_base64 = download_url_as_base64(source_record.image_url_string)
+            except Exception as exc:
+                raise RuntimeError(
+                    "输入图片 URL 已无法访问，图生视频需要原图数据。"
+                    "请重新生成图片，或使用仍可访问的图片作为输入。原始错误："
+                    + str(exc)
+                )
         else:
             raise RuntimeError("当前记录没有可用图片。")
 
