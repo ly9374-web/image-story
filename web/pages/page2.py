@@ -411,7 +411,7 @@ def render():
 <style>
 /* Page2: move content to top (remove Streamlit's default top padding) */
 section[data-testid="stMain"] .block-container {
-  padding-top: 33px !important;
+  padding-top: 16px !important;
 }
 </style>
         """,
