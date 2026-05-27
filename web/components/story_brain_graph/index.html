@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./vis-network.css" />
+    <script src="./vis-network.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0b0f14;
+        font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+        overflow: hidden;
+      }
+
+      #graph {
+        width: 100%;
+        height: 650px;
+        background: #0b0f14;
+        touch-action: none;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(2, 6, 23, 0.58);
+        z-index: 10;
+      }
+
+      .modal {
+        width: min(520px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #111827;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+      }
+
+      .modal header {
+        padding: 16px 18px 10px;
+        border-bottom: 1px solid #e5e7eb;
+        font-weight: 700;
+      }
+
+      .modal form {
+        padding: 16px 18px 18px;
+      }
+
+      .field {
+        margin-bottom: 12px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      input,
+      textarea,
+      select {
+        box-sizing: border-box;
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 8px 10px;
+        color: #111827;
+        background: #ffffff;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 76px;
+        resize: vertical;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        padding-top: 4px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 13px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .primary {
+        background: #2563eb;
+        color: #ffffff;
+      }
+
+      .secondary {
+        background: #e5e7eb;
+        color: #111827;
+      }
+
+      .hint {
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="graph"></div>
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal" role="dialog" aria-modal="true">
+        <header id="modalTitle">编辑节点</header>
+        <form id="editForm">
+          <div id="formFields"></div>
+          <p class="hint" id="formHint"></p>
+          <div class="actions">
+            <button type="button" class="secondary" id="cancelBtn">取消</button>
+            <button type="submit" class="primary">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      let network = null;
+      let nodeDataSet = null;
+      let edgeDataSet = null;
+      let currentTarget = null;
+      let currentArgs = {};
+
+      const graphEl = document.getElementById("graph");
+      const modalBackdrop = document.getElementById("modalBackdrop");
+      const modalTitle = document.getElementById("modalTitle");
+      const editForm = document.getElementById("editForm");
+      const formFields = document.getElementById("formFields");
+      const formHint = document.getElementById("formHint");
+      const cancelBtn = document.getElementById("cancelBtn");
+
+      function sendMessage(type, data) {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type,
+            ...data,
+          },
+          "*"
+        );
+      }
+
+      function setFrameHeight(height) {
+        sendMessage("streamlit:setFrameHeight", { height });
+      }
+
+      function setComponentValue(value) {
+        sendMessage("streamlit:setComponentValue", {
+          value,
+          dataType: "json",
+        });
+      }
+
+      function ready() {
+        sendMessage("streamlit:componentReady", { apiVersion: 1 });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function fieldHtml(name, label, value, multiline = false) {
+        const safeName = escapeHtml(name);
+        const safeLabel = escapeHtml(label);
+        const safeValue = escapeHtml(value ?? "");
+        if (multiline) {
+          return `<div class="field"><label for="${safeName}">${safeLabel}</label><textarea id="${safeName}" name="${safeName}">${safeValue}</textarea></div>`;
+        }
+        return `<div class="field"><label for="${safeName}">${safeLabel}</label><input id="${safeName}" name="${safeName}" value="${safeValue}" /></div>`;
+      }
+
+      function selectHtml(name, label, value, options) {
+        const optionHtml = options
+          .map((option) => {
+            const selected = option === value ? " selected" : "";
+            return `<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`;
+          })
+          .join("");
+        return `<div class="field"><label for="${escapeHtml(name)}">${escapeHtml(label)}</label><select id="${escapeHtml(name)}" name="${escapeHtml(name)}">${optionHtml}</select></div>`;
+      }
+
+      function openEditor(target) {
+        if (!target || target.editable === false) return;
+        currentTarget = target;
+        const data = target.data || {};
+        formFields.innerHTML = "";
+        formHint.textContent = "";
+
+        if (target.nodeType === "character") {
+          modalTitle.textContent = "编辑角色";
+          formFields.innerHTML =
+            fieldHtml("name", "name", data.name) +
+            fieldHtml("speech_style", "speech_style", data.speech_style, true) +
+            fieldHtml("behavior_style", "behavior_style", data.behavior_style, true) +
+            fieldHtml("other", "other", data.other, true) +
+            fieldHtml("goal", "goal", data.goal, true) +
+            fieldHtml("secret", "secret", data.secret, true);
+        } else if (target.nodeType === "trait") {
+          modalTitle.textContent = `编辑${target.fieldLabel || "特征"}`;
+          formFields.innerHTML = fieldHtml("value", target.fieldKey || "value", data[target.fieldKey] || "", true);
+          formHint.textContent = "保存后会更新对应角色的这个字段。";
+        } else if (target.nodeType === "event") {
+          modalTitle.textContent = "编辑事件";
+          const related = Array.isArray(data.related_characters) ? data.related_characters.join(", ") : "";
+          formFields.innerHTML =
+            selectHtml("type", "type", data.type || "伏笔", ["伏笔", "主线", "限制"]) +
+            fieldHtml("title", "title", data.title) +
+            fieldHtml("content", "content", data.content, true) +
+            fieldHtml("status", "status", data.status) +
+            fieldHtml("related_characters", "related_characters（逗号分隔）", related);
+        } else if (target.edgeType === "relationship") {
+          modalTitle.textContent = "编辑关系";
+          formFields.innerHTML =
+            fieldHtml("from", "from", data.from) +
+            fieldHtml("to", "to", data.to) +
+            fieldHtml("type", "type", data.type) +
+            fieldHtml("detail", "detail", data.detail, true);
+        } else {
+          return;
+        }
+
+        modalBackdrop.style.display = "flex";
+        const firstInput = formFields.querySelector("input, textarea, select");
+        if (firstInput) firstInput.focus();
+      }
+
+      function closeEditor() {
+        modalBackdrop.style.display = "none";
+        currentTarget = null;
+      }
+
+      function formValue(formData, key) {
+        return String(formData.get(key) || "").trim();
+      }
+
+      function installZoomGuards() {
+        graphEl.addEventListener(
+          "wheel",
+          (event) => {
+            if (!event.ctrlKey) {
+              event.stopImmediatePropagation();
+            }
+          },
+          { capture: true }
+        );
+      }
+
+      editForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!currentTarget) return;
+        const formData = new FormData(editForm);
+        let data = {};
+
+        if (currentTarget.nodeType === "character") {
+          data = {
+            name: formValue(formData, "name"),
+            speech_style: formValue(formData, "speech_style"),
+            behavior_style: formValue(formData, "behavior_style"),
+            other: formValue(formData, "other"),
+            goal: formValue(formData, "goal"),
+            secret: formValue(formData, "secret"),
+          };
+        } else if (currentTarget.nodeType === "trait") {
+          data[currentTarget.fieldKey] = formValue(formData, "value");
+        } else if (currentTarget.nodeType === "event") {
+          data = {
+            type: formValue(formData, "type"),
+            title: formValue(formData, "title"),
+            content: formValue(formData, "content"),
+            status: formValue(formData, "status"),
+            related_characters: formValue(formData, "related_characters")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          };
+        } else if (currentTarget.edgeType === "relationship") {
+          data = {
+            from: formValue(formData, "from"),
+            to: formValue(formData, "to"),
+            type: formValue(formData, "type"),
+            detail: formValue(formData, "detail"),
+          };
+        }
+
+        setComponentValue({
+          event_id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          action: "edit",
+          target_type: currentTarget.targetType,
+          target_id: currentTarget.recordId || "",
+          target_index: currentTarget.recordIndex,
+          data,
+        });
+        closeEditor();
+      });
+
+      cancelBtn.addEventListener("click", closeEditor);
+      modalBackdrop.addEventListener("click", (event) => {
+        if (event.target === modalBackdrop) closeEditor();
+      });
+
+      function renderGraph(args) {
+        currentArgs = args || {};
+        const graph = currentArgs.graph || {};
+        const height = Number(currentArgs.height || graph.height || 650);
+        graphEl.style.height = `${height}px`;
+        setFrameHeight(height);
+
+        nodeDataSet = new vis.DataSet(graph.nodes || []);
+        edgeDataSet = new vis.DataSet(graph.edges || []);
+        const data = { nodes: nodeDataSet, edges: edgeDataSet };
+        const options = {
+          interaction: {
+            hover: true,
+            dragNodes: true,
+            dragView: true,
+            zoomView: true,
+          },
+          nodes: {
+            borderWidth: 2,
+            font: {
+              color: "#000000",
+              size: 18,
+              face: "Arial",
+            },
+          },
+          edges: {
+            font: {
+              color: "#000000",
+              size: 14,
+              align: "middle",
+            },
+            smooth: {
+              type: "dynamic",
+            },
+          },
+          physics: {
+            enabled: true,
+            stabilization: true,
+            barnesHut: {
+              gravitationalConstant: -2600,
+              centralGravity: 0.22,
+              springLength: Number(graph.node_spacing || 320),
+              springConstant: 0.035,
+              damping: 0.12,
+            },
+          },
+        };
+
+        network = new vis.Network(graphEl, data, options);
+        installZoomGuards();
+        network.on("doubleClick", (params) => {
+          if (params.nodes && params.nodes.length) {
+            openEditor(nodeDataSet.get(params.nodes[0]));
+            return;
+          }
+          if (params.edges && params.edges.length) {
+            openEditor(edgeDataSet.get(params.edges[0]));
+          }
+        });
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.type !== "streamlit:render") return;
+        renderGraph(event.data.args || {});
+      });
+
+      ready();
+      setFrameHeight(650);
+    </script>
+  </body>
+</html>

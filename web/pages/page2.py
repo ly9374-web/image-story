@@ -12,7 +12,7 @@ from app.api.media_clients import CloudinaryUploader
 from app.config import AppStorageKeys, settings
 from app.models import GeneratedMediaKind, Page2ConversationTurn
 from app.services import chat_records, page2_service, stored_urls, system_prompts
-from graph_view import build_story_brain_graph_html
+from graph_view import GRAPH_HEIGHT_PX, GRAPH_NODE_SPACING, build_story_brain_graph_data
 from story_brain import (
     apply_story_brain_updates,
     build_memory_pack,
@@ -21,6 +21,12 @@ from story_brain import (
     save_story_brain,
 )
 from web.nav import get_arg, goto
+
+
+_story_brain_graph_component = components.declare_component(
+    "story_brain_graph",
+    path=str(Path(__file__).resolve().parents[1] / "components" / "story_brain_graph"),
+)
 
 
 def _chat_scope() -> str | None:
@@ -46,6 +52,7 @@ def _ensure_state():
     st.session_state.setdefault("page2_story_brain_update_error", "")
     st.session_state.setdefault("page2_story_brain_update_turn_id", "")
     st.session_state.setdefault("page2_story_brain_update_applied", False)
+    st.session_state.setdefault("page2_story_brain_graph_edit_event_id", "")
 
 
 def _load_record_from_nav_if_needed():
@@ -110,6 +117,93 @@ def _save_story_brain_and_refresh(story_brain: dict):
     save_story_brain(story_brain)
     st.session_state["show_story_brain"] = True
     st.rerun()
+
+
+def _story_brain_collection_for_target(target_type: str) -> str:
+    if target_type == "character":
+        return "characters"
+    if target_type == "relationship":
+        return "relationships"
+    if target_type == "event":
+        return "events"
+    return ""
+
+
+def _apply_story_brain_graph_edit(story_brain: dict, edit_event: dict) -> bool:
+    if not isinstance(edit_event, dict):
+        return False
+    if edit_event.get("action") != "edit":
+        return False
+
+    collection_key = _story_brain_collection_for_target(str(edit_event.get("target_type", "")))
+    if not collection_key:
+        return False
+
+    data = edit_event.get("data")
+    if not isinstance(data, dict):
+        return False
+
+    collection = story_brain.setdefault(collection_key, [])
+    if not isinstance(collection, list):
+        return False
+
+    target_id = _story_brain_text(edit_event.get("target_id"))
+    target_index = edit_event.get("target_index")
+
+    selected_index = None
+    if target_id:
+        for index, item in enumerate(collection):
+            if isinstance(item, dict) and _story_brain_text(item.get("id")) == target_id:
+                selected_index = index
+                break
+
+    if selected_index is None:
+        try:
+            target_index = int(target_index)
+        except Exception:
+            target_index = -1
+        if 0 <= target_index < len(collection):
+            selected_index = target_index
+
+    if selected_index is None:
+        return False
+
+    item = collection[selected_index]
+    if not isinstance(item, dict):
+        return False
+
+    collection[selected_index] = {
+        **item,
+        **data,
+    }
+    save_story_brain(story_brain)
+    return True
+
+
+def _render_story_brain_graph(story_brain: dict):
+    graph_data = build_story_brain_graph_data(
+        story_brain,
+        node_spacing=GRAPH_NODE_SPACING,
+        height=GRAPH_HEIGHT_PX,
+    )
+    edit_event = _story_brain_graph_component(
+        graph=graph_data,
+        height=GRAPH_HEIGHT_PX,
+        key="page2_story_brain_graph_component",
+        default=None,
+    )
+
+    event_id = ""
+    if isinstance(edit_event, dict):
+        event_id = _story_brain_text(edit_event.get("event_id"))
+
+    if event_id and event_id != st.session_state.get("page2_story_brain_graph_edit_event_id"):
+        st.session_state["page2_story_brain_graph_edit_event_id"] = event_id
+        if _apply_story_brain_graph_edit(story_brain, edit_event):
+            st.session_state["story_brain_notice"] = "已保存图谱节点修改。"
+            st.session_state["show_story_brain"] = True
+            st.rerun()
+        st.warning("未能保存图谱节点修改，请确认节点仍存在。")
 
 
 def _clear_story_brain_update_suggestions():
@@ -566,8 +660,7 @@ def _render_chat_column():
     if st.session_state["show_story_brain"]:
         st.subheader("🧠 Story Brain")
         story_brain = load_story_brain()
-        graph_html = build_story_brain_graph_html(story_brain)
-        components.html(graph_html, height=650, scrolling=True)
+        _render_story_brain_graph(story_brain)
         _render_story_brain_editors(story_brain)
         with st.expander("查看原始 Story Brain JSON"):
             st.json(story_brain)
