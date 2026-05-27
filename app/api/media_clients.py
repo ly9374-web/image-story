@@ -455,7 +455,7 @@ class ZhipuVideoClient:
         }
 
         body = {
-            "model": "cogvideox-3",
+            "model": "cogvideox-2",
             "image_url": image_url,
             "prompt": prompt,
             "duration": seconds,

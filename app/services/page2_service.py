@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
@@ -25,9 +26,120 @@ from app.models import (
     now_iso,
 )
 from app.storage import ChatRecordStore
+from story_brain import (
+    build_memory_pack,
+    extract_story_brain_update_prompt,
+    load_story_brain,
+    memory_pack_to_json,
+)
 
 
 DEFAULT_SYSTEM_PROMPT = ""
+
+STORY_BRAIN_SYSTEM_RULES = """
+你是一个小说续写引擎。你必须严格遵守 Story Brain Memory Pack 中的长期记忆。
+
+规则：
+1. active_characters 中的 speech_style 会决定角色说话方式。
+2. active_characters 中的 behavior_style 会决定角色行动方式。
+3. active_characters 中的 goal 和 secret 会影响角色动机，但 secret 不一定能被其他角色知道。
+4. relationship 描述角色之间的当前关系，不能写出与之矛盾的互动。
+5. generation_constraints 是硬性限制，必须遵守。
+6. 如果伏笔或限制中写明“不可揭露”，你只能暗示，不能直接揭露。
+7. 不要让角色 OOC。
+8. 不要在正文中解释你使用了哪些记忆。
+9. 不要输出分析过程。
+10. 不要输出 JSON。
+11. 只输出小说正文。
+""".strip()
+
+STORY_BRAIN_UPDATE_SYSTEM_PROMPT = """
+你是 Story Brain 更新建议生成器。
+你只能输出严格合法 JSON，不要输出 Markdown，不要输出代码块，不要输出解释文字。
+JSON 顶层必须包含 suggested_updates 数组。
+""".strip()
+
+
+def _build_story_brain_memory_pack_json(user_message: str) -> str:
+    current_text = str(user_message or "").strip()
+    current_scene = current_text[-300:] if len(current_text) > 300 else current_text
+    story_brain = load_story_brain()
+    memory_pack = build_memory_pack(
+        current_scene=current_scene,
+        current_text=current_text,
+        story_brain=story_brain,
+    )
+    return memory_pack_to_json(memory_pack, max_chars=1500)
+
+
+def _inject_story_brain_into_prompt(system_prompt: str, user_message: str) -> tuple[str, str]:
+    memory_pack_json = _build_story_brain_memory_pack_json(user_message)
+    current_text = str(user_message or "").strip()
+    base_system_prompt = str(system_prompt or "").strip()
+    enhanced_system_prompt = (
+        base_system_prompt + "\n\n" + STORY_BRAIN_SYSTEM_RULES
+        if base_system_prompt
+        else STORY_BRAIN_SYSTEM_RULES
+    )
+    enhanced_user_message = f"""
+以下是本轮必须参考的 Story Brain Memory Pack，内容已压缩，只包含本轮最相关记忆：
+
+{memory_pack_json}
+
+以下是当前小说正文 / 当前用户输入：
+
+{current_text}
+
+请基于以上内容续写下一段小说。
+
+要求：
+- 保持人物一致性
+- 保持关系连续性
+- 保持主线推进
+- 不提前揭露不可揭露的伏笔
+- 遵守所有小说限制
+- 只输出小说正文
+""".strip()
+    return enhanced_system_prompt, enhanced_user_message
+
+
+def _parse_story_brain_suggested_updates(raw_text: str) -> dict:
+    try:
+        data = json.loads(str(raw_text or "").strip())
+    except json.JSONDecodeError as exc:
+        raise ValueError("Story Brain 更新建议不是合法 JSON：" + str(exc)) from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("Story Brain 更新建议 JSON 顶层必须是对象。")
+
+    suggested_updates = data.get("suggested_updates")
+    if not isinstance(suggested_updates, list):
+        raise ValueError("Story Brain 更新建议 JSON 必须包含 suggested_updates 数组。")
+
+    return {"suggested_updates": suggested_updates}
+
+
+def generate_story_brain_update_suggestions(
+    *,
+    ctx: Page2Context,
+    current_text: str,
+    model_reply: str,
+    story_brain: dict,
+) -> dict:
+    update_prompt = extract_story_brain_update_prompt(
+        current_text=current_text,
+        model_reply=model_reply,
+        story_brain=story_brain,
+    )
+
+    raw_text = DeepSeekAPIClient.send_message(
+        system_prompt=STORY_BRAIN_UPDATE_SYSTEM_PROMPT,
+        context_messages=[],
+        user_message=update_prompt,
+        temperature=ctx.temperature,
+    )
+
+    return _parse_story_brain_suggested_updates(raw_text)
 
 
 @dataclass
@@ -89,28 +201,32 @@ def send_message(
     user_message: str,
 ) -> str:
     context_messages = build_context_messages(turns, ctx.context_turn_count)
+    system_prompt, user_message_for_model = _inject_story_brain_into_prompt(
+        ctx.system_prompt,
+        user_message,
+    )
 
     if ctx.selected_chat_model == "deepseek":
         return DeepSeekAPIClient.send_message(
-            system_prompt=ctx.system_prompt,
+            system_prompt=system_prompt,
             context_messages=context_messages,
-            user_message=user_message,
+            user_message=user_message_for_model,
             temperature=ctx.temperature,
         )
 
     if ctx.selected_chat_model == "grok2":
         return GrokAPIClient.send_message(
-            system_prompt=ctx.system_prompt,
+            system_prompt=system_prompt,
             context_messages=context_messages,
-            user_message=user_message,
+            user_message=user_message_for_model,
             model="grok-4.20-0309-non-reasoning",
             temperature=ctx.temperature,
         )
 
     return GrokAPIClient.send_message(
-        system_prompt=ctx.system_prompt,
+        system_prompt=system_prompt,
         context_messages=context_messages,
-        user_message=user_message,
+        user_message=user_message_for_model,
         model="grok-4-1-fast-reasoning",
         temperature=ctx.temperature,
     )

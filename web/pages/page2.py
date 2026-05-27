@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import base64
 import tempfile
+import uuid
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from app.api.media_clients import CloudinaryUploader
 from app.config import AppStorageKeys, settings
 from app.models import GeneratedMediaKind, Page2ConversationTurn
 from app.services import chat_records, page2_service, stored_urls, system_prompts
+from graph_view import build_story_brain_graph_html
+from story_brain import (
+    apply_story_brain_updates,
+    build_memory_pack,
+    load_story_brain,
+    memory_pack_to_json,
+    save_story_brain,
+)
 from web.nav import get_arg, goto
 
 
@@ -32,6 +42,10 @@ def _ensure_state():
     st.session_state.setdefault("page2_image_prompt_mode", "normal")
     st.session_state.setdefault("page2_image_prompt_subject", "")
     st.session_state.setdefault("page2_url_hidden_space", False)
+    st.session_state.setdefault("page2_story_brain_suggested_updates", None)
+    st.session_state.setdefault("page2_story_brain_update_error", "")
+    st.session_state.setdefault("page2_story_brain_update_turn_id", "")
+    st.session_state.setdefault("page2_story_brain_update_applied", False)
 
 
 def _load_record_from_nav_if_needed():
@@ -77,6 +91,370 @@ def _upsert_record():
     )
 
 
+def _new_story_brain_id(prefix: str) -> str:
+    return prefix + "_" + uuid.uuid4().hex[:10]
+
+
+def _story_brain_text(value) -> str:
+    return str(value or "").strip()
+
+
+def _story_brain_lists(story_brain: dict) -> tuple[list, list, list]:
+    characters = story_brain.setdefault("characters", [])
+    relationships = story_brain.setdefault("relationships", [])
+    events = story_brain.setdefault("events", [])
+    return characters, relationships, events
+
+
+def _save_story_brain_and_refresh(story_brain: dict):
+    save_story_brain(story_brain)
+    st.session_state["show_story_brain"] = True
+    st.rerun()
+
+
+def _clear_story_brain_update_suggestions():
+    st.session_state["page2_story_brain_suggested_updates"] = None
+    st.session_state["page2_story_brain_update_error"] = ""
+    st.session_state["page2_story_brain_update_turn_id"] = ""
+    st.session_state["page2_story_brain_update_applied"] = False
+
+
+def _render_story_brain_update_suggestions():
+    suggested_updates = st.session_state.get("page2_story_brain_suggested_updates")
+    update_error = str(st.session_state.get("page2_story_brain_update_error", "") or "").strip()
+    success_message = st.session_state.pop("page2_story_brain_update_success", "")
+    if success_message:
+        st.success(success_message)
+
+    if not update_error and suggested_updates is None:
+        return
+
+    with st.expander("Story Brain 更新建议"):
+        if update_error:
+            st.error(update_error)
+            return
+
+        if not isinstance(suggested_updates, dict):
+            st.error("Story Brain 更新建议格式异常。")
+            return
+
+        updates = suggested_updates.get("suggested_updates")
+        if not isinstance(updates, list):
+            st.error("Story Brain 更新建议缺少 suggested_updates 数组。")
+            st.json(suggested_updates)
+            return
+
+        if not updates:
+            st.info("本轮没有发现需要更新的 Story Brain 记忆")
+            st.json(suggested_updates)
+            return
+
+        if st.session_state.get("page2_story_brain_update_applied"):
+            st.success("已自动应用到 Story Brain。")
+        st.json(suggested_updates)
+
+
+def _character_label(item, index: int) -> str:
+    name = _story_brain_text(item.get("name") if isinstance(item, dict) else "")
+    return f"{index + 1}. {name or '未命名角色'}"
+
+
+def _relationship_label(item, index: int) -> str:
+    if not isinstance(item, dict):
+        return f"{index + 1}. 未命名关系"
+    from_name = _story_brain_text(item.get("from"))
+    to_name = _story_brain_text(item.get("to"))
+    rel_type = _story_brain_text(item.get("type"))
+    name = f"{from_name or '?'} -> {to_name or '?'}"
+    if rel_type:
+        name += f"（{rel_type}）"
+    return f"{index + 1}. {name}"
+
+
+def _event_label(item, index: int) -> str:
+    if not isinstance(item, dict):
+        return f"{index + 1}. 未命名事件"
+    event_type = _story_brain_text(item.get("type"))
+    title = _story_brain_text(item.get("title"))
+    content = _story_brain_text(item.get("content"))
+    name = title or content[:24] or "未命名事件"
+    return f"{index + 1}. {event_type + '：' if event_type else ''}{name}"
+
+
+def _ensure_selectbox_value(key: str, options: list[int]):
+    if not options:
+        st.session_state.pop(key, None)
+        return
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = options[0]
+
+
+def _render_story_brain_character_editor(story_brain: dict):
+    characters, _, _ = _story_brain_lists(story_brain)
+
+    with st.expander("角色编辑"):
+        if not characters:
+            st.info("暂无角色，请先新增角色")
+
+        if st.button("新增角色", key="story_brain_add_character_btn", use_container_width=True):
+            characters.append(
+                {
+                    "id": _new_story_brain_id("char"),
+                    "name": "",
+                    "speech_style": "",
+                    "behavior_style": "",
+                    "other": "",
+                    "goal": "",
+                    "secret": "",
+                }
+            )
+            _save_story_brain_and_refresh(story_brain)
+
+        if not characters:
+            return
+
+        options = list(range(len(characters)))
+        select_key = "story_brain_character_select"
+        _ensure_selectbox_value(select_key, options)
+        selected_index = st.selectbox(
+            "选择角色",
+            options=options,
+            format_func=lambda index: _character_label(characters[index], index),
+            key=select_key,
+        )
+
+        character = characters[selected_index] if isinstance(characters[selected_index], dict) else {}
+        record_id = _story_brain_text(character.get("id")) or f"character_{selected_index}"
+        record_key = f"{record_id}_{selected_index}"
+
+        name = st.text_input("name", value=_story_brain_text(character.get("name")), key=f"story_brain_character_name_{record_key}")
+        speech_style = st.text_area(
+            "speech_style",
+            value=_story_brain_text(character.get("speech_style")),
+            key=f"story_brain_character_speech_style_{record_key}",
+        )
+        behavior_style = st.text_area(
+            "behavior_style",
+            value=_story_brain_text(character.get("behavior_style")),
+            key=f"story_brain_character_behavior_style_{record_key}",
+        )
+        other = st.text_area("other", value=_story_brain_text(character.get("other")), key=f"story_brain_character_other_{record_key}")
+        goal = st.text_area("goal", value=_story_brain_text(character.get("goal")), key=f"story_brain_character_goal_{record_key}")
+        secret = st.text_area("secret", value=_story_brain_text(character.get("secret")), key=f"story_brain_character_secret_{record_key}")
+
+        save_col, delete_col = st.columns(2)
+        with save_col:
+            if st.button("保存角色修改", key=f"story_brain_save_character_{record_key}", use_container_width=True):
+                characters[selected_index] = {
+                    **character,
+                    "id": _story_brain_text(character.get("id")) or _new_story_brain_id("char"),
+                    "name": name,
+                    "speech_style": speech_style,
+                    "behavior_style": behavior_style,
+                    "other": other,
+                    "goal": goal,
+                    "secret": secret,
+                }
+                _save_story_brain_and_refresh(story_brain)
+
+        with delete_col:
+            st.warning("删除角色不会自动删除关系和事件引用，可能存在失效关系或事件引用。")
+            if st.button("删除这个角色", key=f"story_brain_delete_character_{record_key}", use_container_width=True):
+                characters.pop(selected_index)
+                st.session_state["story_brain_notice"] = "已删除角色。可能存在失效关系或事件引用。"
+                _save_story_brain_and_refresh(story_brain)
+
+
+def _render_story_brain_relationship_editor(story_brain: dict):
+    characters, relationships, _ = _story_brain_lists(story_brain)
+    character_names = [
+        _story_brain_text(item.get("name"))
+        for item in characters
+        if isinstance(item, dict) and _story_brain_text(item.get("name"))
+    ]
+
+    with st.expander("关系编辑"):
+        if not relationships:
+            st.info("暂无关系，请先新增关系")
+
+        if st.button("新增关系", key="story_brain_add_relationship_btn", use_container_width=True):
+            relationships.append(
+                {
+                    "id": _new_story_brain_id("rel"),
+                    "from": character_names[0] if character_names else "",
+                    "to": character_names[1] if len(character_names) > 1 else "",
+                    "type": "",
+                    "detail": "",
+                }
+            )
+            _save_story_brain_and_refresh(story_brain)
+
+        if not relationships:
+            return
+
+        options = list(range(len(relationships)))
+        select_key = "story_brain_relationship_select"
+        _ensure_selectbox_value(select_key, options)
+        selected_index = st.selectbox(
+            "选择 relationship",
+            options=options,
+            format_func=lambda index: _relationship_label(relationships[index], index),
+            key=select_key,
+        )
+
+        relationship = relationships[selected_index] if isinstance(relationships[selected_index], dict) else {}
+        record_id = _story_brain_text(relationship.get("id")) or f"relationship_{selected_index}"
+        record_key = f"{record_id}_{selected_index}"
+
+        current_from = _story_brain_text(relationship.get("from"))
+        current_to = _story_brain_text(relationship.get("to"))
+
+        if character_names:
+            from_options = list(character_names)
+            if current_from and current_from not in from_options:
+                from_options.insert(0, current_from)
+            to_options = list(character_names)
+            if current_to and current_to not in to_options:
+                to_options.insert(0, current_to)
+
+            from_value = st.selectbox(
+                "from",
+                options=from_options,
+                index=from_options.index(current_from) if current_from in from_options else 0,
+                key=f"story_brain_relationship_from_{record_key}",
+            )
+            to_value = st.selectbox(
+                "to",
+                options=to_options,
+                index=to_options.index(current_to) if current_to in to_options else 0,
+                key=f"story_brain_relationship_to_{record_key}",
+            )
+        else:
+            from_value = st.text_input("from", value=current_from, key=f"story_brain_relationship_from_{record_key}")
+            to_value = st.text_input("to", value=current_to, key=f"story_brain_relationship_to_{record_key}")
+
+        rel_type = st.text_input("type", value=_story_brain_text(relationship.get("type")), key=f"story_brain_relationship_type_{record_key}")
+        detail = st.text_area("detail", value=_story_brain_text(relationship.get("detail")), key=f"story_brain_relationship_detail_{record_key}")
+
+        save_col, delete_col = st.columns(2)
+        with save_col:
+            if st.button("保存关系修改", key=f"story_brain_save_relationship_{record_key}", use_container_width=True):
+                relationships[selected_index] = {
+                    **relationship,
+                    "id": _story_brain_text(relationship.get("id")) or _new_story_brain_id("rel"),
+                    "from": from_value,
+                    "to": to_value,
+                    "type": rel_type,
+                    "detail": detail,
+                }
+                _save_story_brain_and_refresh(story_brain)
+
+        with delete_col:
+            if st.button("删除这个关系", key=f"story_brain_delete_relationship_{record_key}", use_container_width=True):
+                relationships.pop(selected_index)
+                _save_story_brain_and_refresh(story_brain)
+
+
+def _render_story_brain_event_editor(story_brain: dict):
+    characters, _, events = _story_brain_lists(story_brain)
+    character_names = [
+        _story_brain_text(item.get("name"))
+        for item in characters
+        if isinstance(item, dict) and _story_brain_text(item.get("name"))
+    ]
+    event_type_options = ["伏笔", "主线", "限制"]
+
+    with st.expander("事件编辑"):
+        if not events:
+            st.info("暂无事件，请先新增事件")
+
+        if st.button("新增事件", key="story_brain_add_event_btn", use_container_width=True):
+            events.append(
+                {
+                    "id": _new_story_brain_id("event"),
+                    "type": "伏笔",
+                    "title": "",
+                    "content": "",
+                    "status": "",
+                    "related_characters": [],
+                }
+            )
+            _save_story_brain_and_refresh(story_brain)
+
+        if not events:
+            return
+
+        options = list(range(len(events)))
+        select_key = "story_brain_event_select"
+        _ensure_selectbox_value(select_key, options)
+        selected_index = st.selectbox(
+            "选择 event",
+            options=options,
+            format_func=lambda index: _event_label(events[index], index),
+            key=select_key,
+        )
+
+        event = events[selected_index] if isinstance(events[selected_index], dict) else {}
+        record_id = _story_brain_text(event.get("id")) or f"event_{selected_index}"
+        record_key = f"{record_id}_{selected_index}"
+
+        current_type = _story_brain_text(event.get("type"))
+        type_value = st.selectbox(
+            "type",
+            options=event_type_options,
+            index=event_type_options.index(current_type) if current_type in event_type_options else 0,
+            key=f"story_brain_event_type_{record_key}",
+        )
+        title = st.text_input("title", value=_story_brain_text(event.get("title")), key=f"story_brain_event_title_{record_key}")
+        content = st.text_area("content", value=_story_brain_text(event.get("content")), key=f"story_brain_event_content_{record_key}")
+        status = st.text_input("status", value=_story_brain_text(event.get("status")), key=f"story_brain_event_status_{record_key}")
+
+        current_related = [
+            _story_brain_text(item)
+            for item in (event.get("related_characters") if isinstance(event.get("related_characters"), list) else [])
+            if _story_brain_text(item)
+        ]
+        related_options = list(character_names)
+        for name in current_related:
+            if name not in related_options:
+                related_options.append(name)
+        related_characters = st.multiselect(
+            "related_characters",
+            options=related_options,
+            default=[name for name in current_related if name in related_options],
+            key=f"story_brain_event_related_characters_{record_key}",
+        )
+
+        save_col, delete_col = st.columns(2)
+        with save_col:
+            if st.button("保存事件修改", key=f"story_brain_save_event_{record_key}", use_container_width=True):
+                events[selected_index] = {
+                    **event,
+                    "id": _story_brain_text(event.get("id")) or _new_story_brain_id("event"),
+                    "type": type_value,
+                    "title": title,
+                    "content": content,
+                    "status": status,
+                    "related_characters": related_characters,
+                }
+                _save_story_brain_and_refresh(story_brain)
+
+        with delete_col:
+            if st.button("删除这个事件", key=f"story_brain_delete_event_{record_key}", use_container_width=True):
+                events.pop(selected_index)
+                _save_story_brain_and_refresh(story_brain)
+
+
+def _render_story_brain_editors(story_brain: dict):
+    notice = st.session_state.pop("story_brain_notice", "")
+    if notice:
+        st.warning(notice)
+
+    _render_story_brain_character_editor(story_brain)
+    _render_story_brain_relationship_editor(story_brain)
+    _render_story_brain_event_editor(story_brain)
+
+
 def _render_sidebar_context():
     with st.sidebar:
         st.subheader("会话")
@@ -86,6 +464,7 @@ def _render_sidebar_context():
             st.session_state.page2_turns = []
             st.session_state.page2_generated_media = []
             st.session_state.page2_selected_media_id = ""
+            _clear_story_brain_update_suggestions()
             goto("main", push_history=False)
 
         if st.session_state.page2_record_id:
@@ -160,7 +539,8 @@ def _render_chat_column():
                     with st.chat_message("assistant"):
                         st.markdown(turn.assistant_message or "")
 
-        user_text = st.chat_input("输入消息并回车发送", key="page2_chat_input")
+        input_placeholder = "输入消息并回车发送" if turns else "输入“开始”以开始游戏"
+        user_text = st.chat_input(input_placeholder, key="page2_chat_input")
 
     undo_clicked = st.button(
         "",
@@ -171,18 +551,59 @@ def _render_chat_column():
         disabled=not bool(turns),
         use_container_width=True,
     )
+
+    if "show_story_brain" not in st.session_state:
+        st.session_state["show_story_brain"] = False
+
+    story_brain_clicked = st.button(
+        "🧠 打开 Story Brain",
+        key="page2_story_brain_btn",
+        use_container_width=True,
+    )
+    if story_brain_clicked:
+        st.session_state["show_story_brain"] = not bool(st.session_state["show_story_brain"])
+
+    if st.session_state["show_story_brain"]:
+        st.subheader("🧠 Story Brain")
+        story_brain = load_story_brain()
+        graph_html = build_story_brain_graph_html(story_brain)
+        components.html(graph_html, height=650, scrolling=True)
+        _render_story_brain_editors(story_brain)
+        with st.expander("查看原始 Story Brain JSON"):
+            st.json(story_brain)
+
     if undo_clicked and turns:
         st.session_state.page2_turns = turns[:-1]
+        _clear_story_brain_update_suggestions()
         _upsert_record()
         st.rerun()
 
     if not user_text:
+        memory_pack_json = str(st.session_state.get("page2_story_brain_memory_pack_json", "") or "")
+        if memory_pack_json:
+            with st.expander("本轮将代入模型的 Story Brain Memory Pack"):
+                st.code(memory_pack_json, language="json")
+        _render_story_brain_update_suggestions()
         return
+
+    current_text = str(user_text).strip()
+    _clear_story_brain_update_suggestions()
+    current_scene = current_text[-300:] if len(current_text) > 300 else current_text
+    story_brain = load_story_brain()
+    memory_pack = build_memory_pack(
+        current_scene=current_scene,
+        current_text=current_text,
+        story_brain=story_brain,
+    )
+    memory_pack_json = memory_pack_to_json(memory_pack, max_chars=1500)
+    st.session_state["page2_story_brain_memory_pack_json"] = memory_pack_json
+    with st.expander("本轮将代入模型的 Story Brain Memory Pack"):
+        st.code(memory_pack_json, language="json")
 
     ctx = page2_service.load_context_from_settings()
 
     new_turn = Page2ConversationTurn(
-        user_message=str(user_text).strip(),
+        user_message=current_text,
         assistant_message=None,
         is_loading=True,
     )
@@ -200,6 +621,31 @@ def _render_chat_column():
     last.assistant_message = reply
     last.is_loading = False
     _upsert_record()
+
+    if not reply.startswith("请求失败"):
+        with st.spinner("正在分析 Story Brain 更新建议..."):
+            try:
+                suggested_updates = page2_service.generate_story_brain_update_suggestions(
+                    ctx=ctx,
+                    current_text=current_text,
+                    model_reply=reply,
+                    story_brain=load_story_brain(),
+                )
+                updates = suggested_updates.get("suggested_updates") if isinstance(suggested_updates, dict) else []
+                if updates:
+                    current_story_brain = load_story_brain()
+                    updated_story_brain = apply_story_brain_updates(current_story_brain, suggested_updates)
+                    save_story_brain(updated_story_brain)
+                st.session_state["page2_story_brain_suggested_updates"] = suggested_updates
+                st.session_state["page2_story_brain_update_error"] = ""
+                st.session_state["page2_story_brain_update_turn_id"] = last.id
+                st.session_state["page2_story_brain_update_applied"] = bool(updates)
+            except Exception as exc:
+                st.session_state["page2_story_brain_suggested_updates"] = None
+                st.session_state["page2_story_brain_update_error"] = str(exc)
+                st.session_state["page2_story_brain_update_turn_id"] = last.id
+                st.session_state["page2_story_brain_update_applied"] = False
+
     st.rerun()
 
 
