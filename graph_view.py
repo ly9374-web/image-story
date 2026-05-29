@@ -280,8 +280,6 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
         content = _safe_str(event.get("content", "")).strip()
         status = _safe_str(event.get("status", "")).strip()
         label = title_text or content or f"事件 {index + 1}"
-        if event_type:
-            label = f"{event_type}\n{label}"
 
         event_id = _event_node_id(event, index, used_ids)
         event_title = _title_lines([
@@ -308,7 +306,7 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
                 net.add_edge(
                     event_id,
                     character_id,
-                    label="相关",
+                    label=event_type or "相关",
                     title=event_title,
                     color="#94a3b8",
                 )
@@ -524,8 +522,6 @@ def build_story_brain_graph_data(
         content = _safe_str(event.get("content", "")).strip()
         status = _safe_str(event.get("status", "")).strip()
         label = title_text or content or f"事件 {index + 1}"
-        if event_type:
-            label = f"{event_type}\n{label}"
 
         event_id = _event_node_id(event, index, used_ids)
         event_title = _title_lines([
@@ -572,7 +568,7 @@ def build_story_brain_graph_data(
                         "id": _unique_id(f"edge:{event_id}:{character_id}", used_edge_ids),
                         "from": event_id,
                         "to": character_id,
-                        "label": "相关",
+                        "label": event_type or "相关",
                         "title": event_title,
                         "color": "#94a3b8",
                     }

@@ -136,6 +136,7 @@
       let edgeDataSet = null;
       let currentTarget = null;
       let currentArgs = {};
+      let wheelGuardInstalled = false;
 
       const graphEl = document.getElementById("graph");
       const modalBackdrop = document.getElementById("modalBackdrop");
@@ -254,12 +255,27 @@
       }
 
       function installZoomGuards() {
+        if (wheelGuardInstalled) return;
+        wheelGuardInstalled = true;
         graphEl.addEventListener(
           "wheel",
           (event) => {
-            if (!event.ctrlKey) {
-              event.stopImmediatePropagation();
+            if (event.ctrlKey) {
+              return;
             }
+            if (!network) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const scale = network.getScale() || 1;
+            const position = network.getViewPosition();
+            network.moveTo({
+              position: {
+                x: position.x + event.deltaX / scale,
+                y: position.y + event.deltaY / scale,
+              },
+              scale,
+              animation: false,
+            });
           },
           { capture: true }
         );
@@ -375,7 +391,12 @@
           }
           if (params.edges && params.edges.length) {
             openEditor(edgeDataSet.get(params.edges[0]));
+            return;
           }
+          setComponentValue({
+            event_id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            action: "fullscreen",
+          });
         });
       }
 

@@ -65,6 +65,7 @@ streamlit run streamlit_app.py
 见 `web/pages/page2.py`：
 
 - 开始页渲染：`render`
+- Story Brain 图谱组件注册：`_story_brain_graph_component`
 - 侧边栏上下文渲染：`_render_sidebar_context`
 - 聊天列渲染：`_render_chat_column`
 - 媒体列渲染：`_render_media_column`
@@ -74,6 +75,23 @@ streamlit run streamlit_app.py
 - 获取最近助手回复：`_latest_assistant_message`
 - 解码 base64 图片：`_decode_image_base64`
 - 聊天记录作用域：`_chat_scope`
+- 新建 Story Brain ID：`_new_story_brain_id`
+- Story Brain 文本清洗：`_story_brain_text`
+- Story Brain 三组动态数组读取：`_story_brain_lists`
+- 保存 Story Brain 并刷新：`_save_story_brain_and_refresh`
+- Story Brain 图谱编辑目标集合映射：`_story_brain_collection_for_target`
+- 应用 Story Brain 图谱双击编辑：`_apply_story_brain_graph_edit`
+- 渲染 Story Brain 图谱：`_render_story_brain_graph`
+- 清空 Story Brain 更新建议状态：`_clear_story_brain_update_suggestions`
+- 渲染 Story Brain 更新建议：`_render_story_brain_update_suggestions`
+- 角色标签生成：`_character_label`
+- 关系标签生成：`_relationship_label`
+- 事件标签生成：`_event_label`
+- selectbox 默认值保护：`_ensure_selectbox_value`
+- Story Brain 角色编辑器：`_render_story_brain_character_editor`
+- Story Brain 关系编辑器：`_render_story_brain_relationship_editor`
+- Story Brain 事件编辑器：`_render_story_brain_event_editor`
+- Story Brain 编辑器总入口：`_render_story_brain_editors`
 
 Page2 表单、容器和 widget keys：
 
@@ -82,6 +100,35 @@ Page2 表单、容器和 widget keys：
 - 聊天历史容器：`page2_chat_history`
 - 撤销按钮：`page2_chat_undo_btn`
 - 聊天输入框：`page2_chat_input`
+- Story Brain 打开按钮：`page2_story_brain_btn`
+- Story Brain 图谱组件：`page2_story_brain_graph_component`
+- Story Brain 全屏图谱组件：`page2_story_brain_graph_component_fullscreen`
+- Story Brain 全屏关闭按钮：`page2_story_brain_fullscreen_close_btn`
+- 角色新增按钮：`story_brain_add_character_btn`
+- 角色选择器：`story_brain_character_select`
+- 角色字段输入前缀：`story_brain_character_name_`、`story_brain_character_speech_style_`、`story_brain_character_behavior_style_`、`story_brain_character_other_`、`story_brain_character_goal_`、`story_brain_character_secret_`
+- 角色保存/删除按钮前缀：`story_brain_save_character_`、`story_brain_delete_character_`
+- 关系新增按钮：`story_brain_add_relationship_btn`
+- 关系选择器：`story_brain_relationship_select`
+- 关系字段输入前缀：`story_brain_relationship_from_`、`story_brain_relationship_to_`、`story_brain_relationship_type_`、`story_brain_relationship_detail_`
+- 关系保存/删除按钮前缀：`story_brain_save_relationship_`、`story_brain_delete_relationship_`
+- 事件新增按钮：`story_brain_add_event_btn`
+- 事件选择器：`story_brain_event_select`
+- 事件字段输入前缀：`story_brain_event_type_`、`story_brain_event_title_`、`story_brain_event_content_`、`story_brain_event_status_`、`story_brain_event_related_characters_`
+- 事件保存/删除按钮前缀：`story_brain_save_event_`、`story_brain_delete_event_`
+
+Page2 主要 UI 区块：
+
+- 会话区：新建会话、记录 ID 显示。
+- 上下文设置区：选择 prompt 记录、system prompt、上下文轮数、聊天模型、temperature、图生视频服务商。
+- 聊天区：聊天历史、聊天输入、撤销按钮、Story Brain 打开按钮。
+- Story Brain 区：交互式知识图谱、角色编辑、关系编辑、事件编辑、原始 JSON 查看。
+- Memory Pack 预览：`本轮将代入模型的 Story Brain Memory Pack`。
+- Story Brain 自动更新建议：`Story Brain 更新建议`，本轮生成后固定调用 DeepSeek 生成 `suggested_updates`，成功解析后自动增量写入 `story_brain.json`。
+- 媒体记录区：图片/视频记录选择、预览、prompt 查看、URL 复制、删除当前记录。
+- 生成图片区：prompt 模式、主体、从最近助手回复生成图片 prompt、图片 prompt 编辑、图片 provider、参考图片 URL、生成图片。
+- 图生视频区：选择输入图片、视频 prompt、时长、生成视频。
+- URL 收藏区：新增 URL 或输入口令解锁隐藏空间、Cloudinary 上传图片获取 URL、收藏列表、删除选中 URL。
 
 Page2 会话状态 keys：
 
@@ -94,6 +141,15 @@ Page2 会话状态 keys：
 - 图片 prompt 模式：`page2_image_prompt_mode`
 - 图片 prompt 主体：`page2_image_prompt_subject`
 - URL 隐藏空间状态：`page2_url_hidden_space`
+- Story Brain 更新建议：`page2_story_brain_suggested_updates`
+- Story Brain 更新错误：`page2_story_brain_update_error`
+- Story Brain 更新对应轮次 ID：`page2_story_brain_update_turn_id`
+- Story Brain 更新是否已自动应用：`page2_story_brain_update_applied`
+- Story Brain 图谱编辑事件 ID：`page2_story_brain_graph_edit_event_id`
+- Story Brain 图谱全屏状态：`page2_story_brain_graph_fullscreen`
+- Story Brain 功能展开状态：`show_story_brain`
+- Story Brain 操作提示：`story_brain_notice`
+- 本轮 Story Brain Memory Pack JSON：`page2_story_brain_memory_pack_json`
 
 Page2 样式变量，见 `app/ui/theme.py` 的 `.st-key-page2_chat_canvas`：
 
@@ -105,6 +161,17 @@ Page2 样式变量，见 `app/ui/theme.py` 的 `.st-key-page2_chat_canvas`：
 - 撤销按钮纵向微调：`--page2-undo-nudge-y`
 - 撤销按钮横向微调：`--page2-undo-nudge-x`
 - 聊天输入右侧预留空间：`--page2-controls-pad-right`
+
+Page2 Story Brain 图谱配置，见 `graph_view.py`：
+
+- 图谱默认高度：`GRAPH_HEIGHT_PX`
+- 节点距离参数：`GRAPH_NODE_SPACING`
+- 特征节点颜色：`GRAPH_TRAIT_NODE_COLOR`
+- 角色节点颜色：`GRAPH_CHARACTER_NODE_COLOR`
+- 事件节点颜色：`GRAPH_EVENT_NODE_COLOR`
+- 节点字体颜色：`GRAPH_NODE_FONT_COLOR`
+- 生成 pyvis HTML 图谱：`build_story_brain_graph_html`
+- 生成可编辑组件图谱数据：`build_story_brain_graph_data`
 
 ### 设置页组件
 
@@ -144,6 +211,14 @@ Page2 样式变量，见 `app/ui/theme.py` 的 `.st-key-page2_chat_canvas`：
 - Page2 行内编辑器注册名：`page2_inline_editor`
 - Page2 行内编辑器调用函数：`page2_inline_editor`
 - Page2 行内编辑器前端入口：`web/components/page2_inline_editor/frontend/index.html`
+
+见 `web/components/story_brain_graph/index.html`：
+
+- Story Brain 图谱组件注册名：`story_brain_graph`
+- Story Brain 图谱前端入口：`web/components/story_brain_graph/index.html`
+- Story Brain 图谱依赖脚本：`web/components/story_brain_graph/vis-network.min.js`
+- Story Brain 图谱依赖样式：`web/components/story_brain_graph/vis-network.css`
+- 图谱交互能力：拖动画布、双指缩放、普通滚轮平移画布、横向滚动平移画布、禁用普通滚轮缩放、双击节点/关系边编辑并回传 Python 保存、双击图谱背景打开全屏弹窗。
 
 ### 导航和主题组件
 
@@ -217,6 +292,12 @@ Page2 样式变量，见 `app/ui/theme.py` 的 `.st-key-page2_chat_canvas`：
 见 `app/services/page2_service.py`：
 
 - Page2 上下文：`Page2Context`
+- Story Brain 小说续写系统规则：`STORY_BRAIN_SYSTEM_RULES`
+- Story Brain 更新建议系统规则：`STORY_BRAIN_UPDATE_SYSTEM_PROMPT`
+- 构造 Story Brain Memory Pack JSON：`_build_story_brain_memory_pack_json`
+- 注入 Story Brain 到模型 prompt：`_inject_story_brain_into_prompt`
+- 解析 Story Brain 更新建议 JSON：`_parse_story_brain_suggested_updates`
+- 生成 Story Brain 更新建议：`generate_story_brain_update_suggestions`
 - 从设置加载上下文：`load_context_from_settings`
 - 保存上下文到设置：`save_context_to_settings`
 - 构建上下文消息：`build_context_messages`
@@ -227,6 +308,25 @@ Page2 样式变量，见 `app/ui/theme.py` 的 `.st-key-page2_chat_canvas`：
 - 确保记录 ID：`ensure_record_id`
 - 生成记录标题：`make_record_title`
 - 新增或更新聊天记录：`upsert_chat_record`
+
+见 `story_brain.py`：
+
+- 加载 Story Brain：`load_story_brain`
+- 保存 Story Brain：`save_story_brain`
+- 检测当前文本中的活跃角色：`detect_active_characters`
+- 构造模型上下文 Memory Pack：`build_memory_pack`
+- 压缩 Memory Pack：`compact_memory_pack`
+- 输出 Memory Pack JSON：`memory_pack_to_json`
+- 构造 Story Brain 更新建议 prompt：`extract_story_brain_update_prompt`
+- 应用 Story Brain 更新建议：`apply_story_brain_updates`
+
+见 `graph_view.py`：
+
+- 图谱默认高度：`GRAPH_HEIGHT_PX`
+- 图谱节点距离：`GRAPH_NODE_SPACING`
+- 图谱颜色常量：`GRAPH_TRAIT_NODE_COLOR`、`GRAPH_CHARACTER_NODE_COLOR`、`GRAPH_EVENT_NODE_COLOR`、`GRAPH_NODE_FONT_COLOR`
+- 构造只读 pyvis 图谱 HTML：`build_story_brain_graph_html`
+- 构造可编辑 Story Brain 图谱数据：`build_story_brain_graph_data`
 
 见 `app/services/chat_records.py`：
 

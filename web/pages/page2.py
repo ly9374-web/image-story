@@ -53,6 +53,7 @@ def _ensure_state():
     st.session_state.setdefault("page2_story_brain_update_turn_id", "")
     st.session_state.setdefault("page2_story_brain_update_applied", False)
     st.session_state.setdefault("page2_story_brain_graph_edit_event_id", "")
+    st.session_state.setdefault("page2_story_brain_graph_fullscreen", False)
 
 
 def _load_record_from_nav_if_needed():
@@ -180,30 +181,101 @@ def _apply_story_brain_graph_edit(story_brain: dict, edit_event: dict) -> bool:
     return True
 
 
-def _render_story_brain_graph(story_brain: dict):
+def _render_story_brain_graph_component(story_brain: dict, *, height: int, key: str):
     graph_data = build_story_brain_graph_data(
         story_brain,
         node_spacing=GRAPH_NODE_SPACING,
-        height=GRAPH_HEIGHT_PX,
+        height=height,
     )
-    edit_event = _story_brain_graph_component(
+    return _story_brain_graph_component(
         graph=graph_data,
-        height=GRAPH_HEIGHT_PX,
-        key="page2_story_brain_graph_component",
+        height=height,
+        key=key,
         default=None,
     )
 
+
+def _handle_story_brain_graph_event(story_brain: dict, graph_event: dict):
     event_id = ""
-    if isinstance(edit_event, dict):
-        event_id = _story_brain_text(edit_event.get("event_id"))
+    if isinstance(graph_event, dict):
+        event_id = _story_brain_text(graph_event.get("event_id"))
 
     if event_id and event_id != st.session_state.get("page2_story_brain_graph_edit_event_id"):
         st.session_state["page2_story_brain_graph_edit_event_id"] = event_id
-        if _apply_story_brain_graph_edit(story_brain, edit_event):
+        action = _story_brain_text(graph_event.get("action"))
+        if action == "fullscreen":
+            st.session_state["page2_story_brain_graph_fullscreen"] = True
+            st.session_state["show_story_brain"] = True
+            st.rerun()
+        if action != "edit":
+            return
+        if _apply_story_brain_graph_edit(story_brain, graph_event):
             st.session_state["story_brain_notice"] = "已保存图谱节点修改。"
             st.session_state["show_story_brain"] = True
             st.rerun()
         st.warning("未能保存图谱节点修改，请确认节点仍存在。")
+
+
+def _render_story_brain_fullscreen_graph(story_brain: dict):
+    if not st.session_state.get("page2_story_brain_graph_fullscreen"):
+        return
+
+    st.markdown(
+        """
+        <style>
+          .st-key-page2_story_brain_fullscreen_overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            box-sizing: border-box;
+            padding: 18px;
+            overflow: auto;
+            background: #0b0f14;
+          }
+          .st-key-page2_story_brain_fullscreen_overlay iframe {
+            border-radius: 8px;
+          }
+          .st-key-page2_story_brain_fullscreen_close_btn {
+            position: fixed;
+            top: 14px;
+            right: 18px;
+            z-index: 1000000;
+            width: 36px;
+          }
+          .st-key-page2_story_brain_fullscreen_close_btn button {
+            min-height: 32px;
+            padding: 0;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            color: #111827;
+            font-size: 18px;
+            line-height: 1;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    fullscreen_height = 900
+    with st.container(key="page2_story_brain_fullscreen_overlay"):
+        if st.button("x", key="page2_story_brain_fullscreen_close_btn", help="关闭 Story Brain 全屏"):
+            st.session_state["page2_story_brain_graph_fullscreen"] = False
+            st.rerun()
+        graph_event = _render_story_brain_graph_component(
+            story_brain,
+            height=fullscreen_height,
+            key="page2_story_brain_graph_component_fullscreen",
+        )
+        _handle_story_brain_graph_event(story_brain, graph_event)
+
+
+def _render_story_brain_graph(story_brain: dict):
+    graph_event = _render_story_brain_graph_component(
+        story_brain,
+        height=GRAPH_HEIGHT_PX,
+        key="page2_story_brain_graph_component",
+    )
+    _handle_story_brain_graph_event(story_brain, graph_event)
+    _render_story_brain_fullscreen_graph(story_brain)
 
 
 def _clear_story_brain_update_suggestions():
@@ -650,15 +722,17 @@ def _render_chat_column():
         st.session_state["show_story_brain"] = False
 
     story_brain_clicked = st.button(
-        "🧠 打开 Story Brain",
+        "打开 Story Brain",
         key="page2_story_brain_btn",
         use_container_width=True,
     )
     if story_brain_clicked:
         st.session_state["show_story_brain"] = not bool(st.session_state["show_story_brain"])
+        if not st.session_state["show_story_brain"]:
+            st.session_state["page2_story_brain_graph_fullscreen"] = False
 
     if st.session_state["show_story_brain"]:
-        st.subheader("🧠 Story Brain")
+        st.subheader("Story Brain")
         story_brain = load_story_brain()
         _render_story_brain_graph(story_brain)
         _render_story_brain_editors(story_brain)
