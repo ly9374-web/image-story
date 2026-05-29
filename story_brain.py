@@ -29,6 +29,10 @@ def _default_story_brain() -> dict:
     }
 
 
+def empty_story_brain() -> dict:
+    return _default_story_brain()
+
+
 def _safe_str(value: Any) -> str:
     if value is None:
         return ""
@@ -69,6 +73,10 @@ def _normalize_story_brain(data: Any) -> dict:
     }
 
 
+def normalize_story_brain(data: Any) -> dict:
+    return _normalize_story_brain(data)
+
+
 def _normalize_character(character: Any, *, field_limit: int | None = None) -> dict:
     if not isinstance(character, dict):
         character = {"name": character}
@@ -105,7 +113,6 @@ def _normalize_memory_pack(memory_pack: Any) -> dict:
             constraints.append(content)
 
     return {
-        "current_scene": _safe_str(memory_pack.get("current_scene", "")),
         "active_characters": [
             _normalize_character(character)
             for character in _as_list(memory_pack.get("active_characters"))
@@ -186,7 +193,7 @@ def detect_active_characters(current_text: str, story_brain: dict) -> list[str]:
     return active_names
 
 
-def build_memory_pack(current_scene: str, current_text: str, story_brain: dict) -> dict:
+def build_memory_pack(current_text: str, story_brain: dict) -> dict:
     data = _normalize_story_brain(story_brain)
     active_names = detect_active_characters(current_text, data)
     active_name_set = set(active_names)
@@ -243,7 +250,6 @@ def build_memory_pack(current_scene: str, current_text: str, story_brain: dict) 
             generation_constraints.append(content)
 
     return {
-        "current_scene": _safe_str(current_scene),
         "active_characters": active_characters,
         "relationship": relationships,
         "generation_constraints": generation_constraints,
@@ -283,7 +289,6 @@ def compact_memory_pack(memory_pack: dict, max_chars: int = 1500) -> dict:
     ]
 
     compacted = {
-        "current_scene": _truncate(normalized["current_scene"], 300),
         "active_characters": active_characters,
         "relationship": relationships,
         "generation_constraints": constraints,
@@ -315,7 +320,6 @@ def compact_memory_pack(memory_pack: dict, max_chars: int = 1500) -> dict:
         if _json_len(compacted) <= max_chars:
             return compacted
 
-    compacted["current_scene"] = _truncate(compacted["current_scene"], 120)
     return compacted
 
 
@@ -325,31 +329,28 @@ def _minimal_memory_pack(compacted: dict, max_chars: int) -> dict:
     relationship_items = list(compacted.get("relationship", {}).items())
     characters = compacted.get("active_characters", [])
 
-    for scene_limit in (200, 120, 60, 20, 0):
-        for character_count in (3, 2, 1, 0):
-            for relationship_count in (3, 1, 0):
-                for constraint_count in (5, 3, 1, 0):
-                    candidate = {
-                        "current_scene": _truncate(compacted.get("current_scene", ""), scene_limit),
-                        "active_characters": [
-                            _normalize_character(character, field_limit=40)
-                            for character in characters[:character_count]
-                        ],
-                        "relationship": {
-                            key: _truncate(value, 60)
-                            for key, value in relationship_items[:relationship_count]
-                        },
-                        "generation_constraints": [
-                            _truncate(item, 80)
-                            for item in constraints[:constraint_count]
-                        ],
-                        "note": note,
-                    }
-                    if len(_json_text(candidate, indent=2)) <= max_chars:
-                        return candidate
+    for character_count in (3, 2, 1, 0):
+        for relationship_count in (3, 1, 0):
+            for constraint_count in (5, 3, 1, 0):
+                candidate = {
+                    "active_characters": [
+                        _normalize_character(character, field_limit=40)
+                        for character in characters[:character_count]
+                    ],
+                    "relationship": {
+                        key: _truncate(value, 60)
+                        for key, value in relationship_items[:relationship_count]
+                    },
+                    "generation_constraints": [
+                        _truncate(item, 80)
+                        for item in constraints[:constraint_count]
+                    ],
+                    "note": note,
+                }
+                if len(_json_text(candidate, indent=2)) <= max_chars:
+                    return candidate
 
     return {
-        "current_scene": "",
         "active_characters": [],
         "relationship": {},
         "generation_constraints": [],

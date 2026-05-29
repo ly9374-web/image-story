@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import Enum
 from uuid import uuid4
 
+from story_brain import empty_story_brain, normalize_story_brain
+
 
 def now_iso():
     return datetime.now().isoformat(timespec="seconds")
@@ -177,6 +179,7 @@ class ChatRecord:
     turns: list
     system_prompt: str
     generated_images: list = field(default_factory=list)
+    story_brain: dict = field(default_factory=empty_story_brain)
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -201,6 +204,7 @@ class ChatRecord:
             turns=turns,
             system_prompt=data.get("system_prompt") or data.get("systemPrompt") or "",
             generated_images=generated_images,
+            story_brain=normalize_story_brain(data.get("story_brain") or data.get("storyBrain")),
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -218,6 +222,7 @@ class ChatRecord:
                 image.to_dict() if hasattr(image, "to_dict") else image
                 for image in self.generated_images
             ],
+            "story_brain": normalize_story_brain(self.story_brain),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

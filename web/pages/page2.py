@@ -16,9 +16,9 @@ from graph_view import GRAPH_HEIGHT_PX, GRAPH_NODE_SPACING, build_story_brain_gr
 from story_brain import (
     apply_story_brain_updates,
     build_memory_pack,
-    load_story_brain,
+    empty_story_brain,
     memory_pack_to_json,
-    save_story_brain,
+    normalize_story_brain,
 )
 from web.nav import get_arg, goto
 
@@ -54,6 +54,7 @@ def _ensure_state():
     st.session_state.setdefault("page2_story_brain_update_applied", False)
     st.session_state.setdefault("page2_story_brain_graph_edit_event_id", "")
     st.session_state.setdefault("page2_story_brain_graph_fullscreen", False)
+    st.session_state.setdefault("page2_story_brain", empty_story_brain())
 
 
 def _load_record_from_nav_if_needed():
@@ -73,6 +74,7 @@ def _load_record_from_nav_if_needed():
     st.session_state.page2_loaded_record_id = record.id
     st.session_state.page2_turns = list(record.turns or [])
     st.session_state.page2_generated_media = list(record.generated_images or [])
+    st.session_state.page2_story_brain = normalize_story_brain(record.story_brain)
     st.session_state.page2_selected_media_id = ""
 
     if str(record.system_prompt or "").strip():
@@ -95,8 +97,20 @@ def _upsert_record():
         turns=st.session_state.page2_turns,
         generated_media=st.session_state.page2_generated_media,
         system_prompt=ctx.system_prompt,
+        story_brain=st.session_state.page2_story_brain,
         scope=_chat_scope(),
     )
+
+
+def _current_story_brain() -> dict:
+    story_brain = normalize_story_brain(st.session_state.get("page2_story_brain"))
+    st.session_state.page2_story_brain = story_brain
+    return story_brain
+
+
+def _save_story_brain_to_current_record(story_brain: dict):
+    st.session_state.page2_story_brain = normalize_story_brain(story_brain)
+    _upsert_record()
 
 
 def _new_story_brain_id(prefix: str) -> str:
@@ -115,7 +129,7 @@ def _story_brain_lists(story_brain: dict) -> tuple[list, list, list]:
 
 
 def _save_story_brain_and_refresh(story_brain: dict):
-    save_story_brain(story_brain)
+    _save_story_brain_to_current_record(story_brain)
     st.session_state["show_story_brain"] = True
     st.rerun()
 
@@ -177,7 +191,7 @@ def _apply_story_brain_graph_edit(story_brain: dict, edit_event: dict) -> bool:
         **item,
         **data,
     }
-    save_story_brain(story_brain)
+    _save_story_brain_to_current_record(story_brain)
     return True
 
 
@@ -629,6 +643,7 @@ def _render_sidebar_context():
             st.session_state.page2_loaded_record_id = ""
             st.session_state.page2_turns = []
             st.session_state.page2_generated_media = []
+            st.session_state.page2_story_brain = empty_story_brain()
             st.session_state.page2_selected_media_id = ""
             _clear_story_brain_update_suggestions()
             goto("main", push_history=False)
@@ -733,7 +748,7 @@ def _render_chat_column():
 
     if st.session_state["show_story_brain"]:
         st.subheader("Story Brain")
-        story_brain = load_story_brain()
+        story_brain = _current_story_brain()
         _render_story_brain_graph(story_brain)
         _render_story_brain_editors(story_brain)
         with st.expander("查看原始 Story Brain JSON"):
@@ -755,11 +770,13 @@ def _render_chat_column():
 
     current_text = str(user_text).strip()
     _clear_story_brain_update_suggestions()
-    current_scene = current_text[-300:] if len(current_text) > 300 else current_text
-    story_brain = load_story_brain()
+    previous_assistant_text = _latest_assistant_message(turns)
+    memory_source_text = "\n\n".join(
+        part for part in [previous_assistant_text.strip(), current_text] if part
+    )
+    story_brain = _current_story_brain()
     memory_pack = build_memory_pack(
-        current_scene=current_scene,
-        current_text=current_text,
+        current_text=memory_source_text,
         story_brain=story_brain,
     )
     memory_pack_json = memory_pack_to_json(memory_pack, max_chars=1500)
@@ -779,7 +796,12 @@ def _render_chat_column():
 
     with st.spinner("正在请求模型..."):
         try:
-            reply = page2_service.send_message(ctx=ctx, turns=st.session_state.page2_turns, user_message=new_turn.user_message)
+            reply = page2_service.send_message(
+                ctx=ctx,
+                turns=st.session_state.page2_turns,
+                user_message=new_turn.user_message,
+                story_brain=story_brain,
+            )
         except Exception as exc:
             reply = "请求失败，请稍后重试。\n" + str(exc)
 
@@ -794,15 +816,15 @@ def _render_chat_column():
             try:
                 suggested_updates = page2_service.generate_story_brain_update_suggestions(
                     ctx=ctx,
-                    current_text=current_text,
+                    current_text=memory_source_text,
                     model_reply=reply,
-                    story_brain=load_story_brain(),
+                    story_brain=_current_story_brain(),
                 )
                 updates = suggested_updates.get("suggested_updates") if isinstance(suggested_updates, dict) else []
                 if updates:
-                    current_story_brain = load_story_brain()
+                    current_story_brain = _current_story_brain()
                     updated_story_brain = apply_story_brain_updates(current_story_brain, suggested_updates)
-                    save_story_brain(updated_story_brain)
+                    _save_story_brain_to_current_record(updated_story_brain)
                 st.session_state["page2_story_brain_suggested_updates"] = suggested_updates
                 st.session_state["page2_story_brain_update_error"] = ""
                 st.session_state["page2_story_brain_update_turn_id"] = last.id

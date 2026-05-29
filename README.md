@@ -124,7 +124,7 @@ Page2 主要 UI 区块：
 - 聊天区：聊天历史、聊天输入、撤销按钮、Story Brain 打开按钮。
 - Story Brain 区：交互式知识图谱、角色编辑、关系编辑、事件编辑、原始 JSON 查看。
 - Memory Pack 预览：`本轮将代入模型的 Story Brain Memory Pack`。
-- Story Brain 自动更新建议：`Story Brain 更新建议`，本轮生成后固定调用 DeepSeek 生成 `suggested_updates`，成功解析后自动增量写入 `story_brain.json`。
+- Story Brain 自动更新建议：`Story Brain 更新建议`，本轮生成后固定调用 DeepSeek 生成 `suggested_updates`，成功解析后自动增量写入当前 `ChatRecord.story_brain`。
 - 媒体记录区：图片/视频记录选择、预览、prompt 查看、URL 复制、删除当前记录。
 - 生成图片区：prompt 模式、主体、从最近助手回复生成图片 prompt、图片 prompt 编辑、图片 provider、参考图片 URL、生成图片。
 - 图生视频区：选择输入图片、视频 prompt、时长、生成视频。
@@ -147,6 +147,7 @@ Page2 会话状态 keys：
 - Story Brain 更新是否已自动应用：`page2_story_brain_update_applied`
 - Story Brain 图谱编辑事件 ID：`page2_story_brain_graph_edit_event_id`
 - Story Brain 图谱全屏状态：`page2_story_brain_graph_fullscreen`
+- 当前聊天记录 Story Brain：`page2_story_brain`
 - Story Brain 功能展开状态：`show_story_brain`
 - Story Brain 操作提示：`story_brain_notice`
 - 本轮 Story Brain Memory Pack JSON：`page2_story_brain_memory_pack_json`
@@ -249,7 +250,7 @@ Page2 Story Brain 图谱配置，见 `graph_view.py`：
 - Page2 对话轮次：`Page2ConversationTurn`
 - 生成媒体记录：`GeneratedImageRecord`
 - 已存图片 URL 记录：`StoredImageURLRecord`
-- 聊天记录：`ChatRecord`
+- 聊天记录：`ChatRecord`，包含该记录独立的 `story_brain`
 - 聊天记录索引项：`ChatRecordIndexItem`
 
 ### 配置和存储组件
@@ -294,6 +295,8 @@ Page2 Story Brain 图谱配置，见 `graph_view.py`：
 - Page2 上下文：`Page2Context`
 - Story Brain 小说续写系统规则：`STORY_BRAIN_SYSTEM_RULES`
 - Story Brain 更新建议系统规则：`STORY_BRAIN_UPDATE_SYSTEM_PROMPT`
+- 获取最近助手回复：`_latest_assistant_message`
+- 构造 Memory Pack 识别文本：`_story_brain_memory_source_text`
 - 构造 Story Brain Memory Pack JSON：`_build_story_brain_memory_pack_json`
 - 注入 Story Brain 到模型 prompt：`_inject_story_brain_into_prompt`
 - 解析 Story Brain 更新建议 JSON：`_parse_story_brain_suggested_updates`
@@ -311,8 +314,10 @@ Page2 Story Brain 图谱配置，见 `graph_view.py`：
 
 见 `story_brain.py`：
 
-- 加载 Story Brain：`load_story_brain`
-- 保存 Story Brain：`save_story_brain`
+- 创建空 Story Brain：`empty_story_brain`
+- 标准化 Story Brain：`normalize_story_brain`
+- 加载独立 Story Brain JSON 的兼容工具：`load_story_brain`
+- 保存独立 Story Brain JSON 的兼容工具：`save_story_brain`
 - 检测当前文本中的活跃角色：`detect_active_characters`
 - 构造模型上下文 Memory Pack：`build_memory_pack`
 - 压缩 Memory Pack：`compact_memory_pack`

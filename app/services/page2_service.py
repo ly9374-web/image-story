@@ -29,15 +29,15 @@ from app.storage import ChatRecordStore
 from story_brain import (
     build_memory_pack,
     extract_story_brain_update_prompt,
-    load_story_brain,
     memory_pack_to_json,
+    normalize_story_brain,
 )
 
 
 DEFAULT_SYSTEM_PROMPT = ""
 
 STORY_BRAIN_SYSTEM_RULES = """
-你是一个小说续写引擎。你必须严格遵守 Story Brain Memory Pack 中的长期记忆。
+你回复中的人物和故事必须严格遵守 Story Brain Memory Pack 中的长期记忆。
 
 规则：
 1. active_characters 中的 speech_style 会决定角色说话方式。
@@ -45,12 +45,14 @@ STORY_BRAIN_SYSTEM_RULES = """
 3. active_characters 中的 goal 和 secret 会影响角色动机，但 secret 不一定能被其他角色知道。
 4. relationship 描述角色之间的当前关系，不能写出与之矛盾的互动。
 5. generation_constraints 是硬性限制，必须遵守。
-6. 如果伏笔或限制中写明“不可揭露”，你只能暗示，不能直接揭露。
-7. 不要让角色 OOC。
-8. 不要在正文中解释你使用了哪些记忆。
-9. 不要输出分析过程。
-10. 不要输出 JSON。
-11. 只输出小说正文。
+6. 当trigger在回复中出现时，让伏笔的content影响情节。
+7. trigger未在回复中出现，不得提到、解释、揭露、使用该伏笔，也不得让该伏笔影响情节。
+8. 伏笔一旦在正文中被明确提到、解释、揭露、使用或影响情节，就视为已触发。
+9. 不要让角色 OOC。
+10. 不要在respond中解释你使用了哪些记忆。
+11. 不要输出分析过程。
+12. 不要输出 JSON。
+13. 只输出正文。
 """.strip()
 
 STORY_BRAIN_UPDATE_SYSTEM_PROMPT = """
@@ -60,20 +62,44 @@ JSON 顶层必须包含 suggested_updates 数组。
 """.strip()
 
 
-def _build_story_brain_memory_pack_json(user_message: str) -> str:
-    current_text = str(user_message or "").strip()
-    current_scene = current_text[-300:] if len(current_text) > 300 else current_text
-    story_brain = load_story_brain()
+def _latest_assistant_message(turns: Iterable[Page2ConversationTurn]) -> str:
+    for turn in reversed(list(turns)):
+        if turn.assistant_message:
+            return str(turn.assistant_message or "")
+    return ""
+
+
+def _story_brain_memory_source_text(previous_assistant_text: str, user_message: str) -> str:
+    parts = [
+        str(previous_assistant_text or "").strip(),
+        str(user_message or "").strip(),
+    ]
+    return "\n\n".join(part for part in parts if part)
+
+
+def _build_story_brain_memory_pack_json(
+    *,
+    memory_source_text: str,
+    story_brain: dict,
+) -> str:
     memory_pack = build_memory_pack(
-        current_scene=current_scene,
-        current_text=current_text,
-        story_brain=story_brain,
+        current_text=str(memory_source_text or "").strip(),
+        story_brain=normalize_story_brain(story_brain),
     )
     return memory_pack_to_json(memory_pack, max_chars=1500)
 
 
-def _inject_story_brain_into_prompt(system_prompt: str, user_message: str) -> tuple[str, str]:
-    memory_pack_json = _build_story_brain_memory_pack_json(user_message)
+def _inject_story_brain_into_prompt(
+    system_prompt: str,
+    user_message: str,
+    *,
+    memory_source_text: str,
+    story_brain: dict,
+) -> tuple[str, str]:
+    memory_pack_json = _build_story_brain_memory_pack_json(
+        memory_source_text=memory_source_text,
+        story_brain=story_brain,
+    )
     current_text = str(user_message or "").strip()
     base_system_prompt = str(system_prompt or "").strip()
     enhanced_system_prompt = (
@@ -86,7 +112,7 @@ def _inject_story_brain_into_prompt(system_prompt: str, user_message: str) -> tu
 
 {memory_pack_json}
 
-以下是当前小说正文 / 当前用户输入：
+以下是当前用户输入：
 
 {current_text}
 
@@ -96,9 +122,8 @@ def _inject_story_brain_into_prompt(system_prompt: str, user_message: str) -> tu
 - 保持人物一致性
 - 保持关系连续性
 - 保持主线推进
-- 不提前揭露不可揭露的伏笔
-- 遵守所有小说限制
-- 只输出小说正文
+- 伏笔 trigger 未明确发生时，不触发、不提到、不解释、不让伏笔影响情节
+- 遵守所有constraints中的限制
 """.strip()
     return enhanced_system_prompt, enhanced_user_message
 
@@ -199,11 +224,18 @@ def send_message(
     ctx: Page2Context,
     turns: list[Page2ConversationTurn],
     user_message: str,
+    story_brain: dict,
 ) -> str:
     context_messages = build_context_messages(turns, ctx.context_turn_count)
+    memory_source_text = _story_brain_memory_source_text(
+        _latest_assistant_message(turns),
+        user_message,
+    )
     system_prompt, user_message_for_model = _inject_story_brain_into_prompt(
         ctx.system_prompt,
         user_message,
+        memory_source_text=memory_source_text,
+        story_brain=story_brain,
     )
 
     if ctx.selected_chat_model == "deepseek":
@@ -425,9 +457,12 @@ def upsert_chat_record(
     turns: list[Page2ConversationTurn],
     generated_media: list[GeneratedImageRecord],
     system_prompt: str,
+    story_brain: dict,
     scope: str | None = None,
 ) -> str:
-    if not turns and not generated_media:
+    normalized_story_brain = normalize_story_brain(story_brain)
+    has_story_brain = any(normalized_story_brain.get(key) for key in ("characters", "relationships", "events"))
+    if not turns and not generated_media and not has_story_brain:
         return str(record_id or "").strip()
 
     now = now_iso()
@@ -447,6 +482,7 @@ def upsert_chat_record(
         turns=turns,
         system_prompt=system_prompt,
         generated_images=generated_media,
+        story_brain=normalized_story_brain,
         created_at=existing_created_at or now,
         updated_at=now,
     )
