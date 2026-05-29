@@ -181,6 +181,7 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
             ("角色", name),
             ("说话风格", character.get("speech_style")),
             ("行为风格", character.get("behavior_style")),
+            ("状态", character.get("status")),
             ("目标", character.get("goal")),
             ("秘密", character.get("secret")),
             ("其他", character.get("other")),
@@ -212,6 +213,15 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
             field_key="behavior_style",
             label="行为风格",
             value=character.get("behavior_style"),
+            used_ids=used_ids,
+        )
+        _add_trait_node(
+            net,
+            character_id=node_id,
+            character_name=name,
+            field_key="status",
+            label="状态",
+            value=character.get("status"),
             used_ids=used_ids,
         )
         _add_trait_node(
@@ -279,6 +289,7 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
         title_text = _safe_str(event.get("title", "")).strip()
         content = _safe_str(event.get("content", "")).strip()
         status = _safe_str(event.get("status", "")).strip()
+        trigger = _safe_str(event.get("trigger", "")).strip()
         label = title_text or content or f"事件 {index + 1}"
 
         event_id = _event_node_id(event, index, used_ids)
@@ -287,6 +298,7 @@ def build_story_brain_graph_html(story_brain: dict) -> str:
             ("标题", title_text),
             ("内容", content),
             ("状态", status),
+            ("触发条件", trigger if event_type == "伏笔" else ""),
             ("相关角色", "、".join(_safe_str(item) for item in _as_list(event.get("related_characters")))),
         ])
         net.add_node(
@@ -396,6 +408,7 @@ def build_story_brain_graph_data(
             ("角色", name),
             ("说话风格", character.get("speech_style")),
             ("行为风格", character.get("behavior_style")),
+            ("状态", character.get("status")),
             ("目标", character.get("goal")),
             ("秘密", character.get("secret")),
             ("其他", character.get("other")),
@@ -419,6 +432,7 @@ def build_story_brain_graph_data(
                     "name": name,
                     "speech_style": _safe_str(character.get("speech_style", "")),
                     "behavior_style": _safe_str(character.get("behavior_style", "")),
+                    "status": _safe_str(character.get("status", "")),
                     "other": _safe_str(character.get("other", "")),
                     "goal": _safe_str(character.get("goal", "")),
                     "secret": _safe_str(character.get("secret", "")),
@@ -429,6 +443,7 @@ def build_story_brain_graph_data(
         for field_key, field_label in [
             ("speech_style", "说话风格"),
             ("behavior_style", "行为风格"),
+            ("status", "状态"),
             ("other", "其他"),
             ("goal", "目标"),
             ("secret", "秘密"),
@@ -521,6 +536,7 @@ def build_story_brain_graph_data(
         title_text = _safe_str(event.get("title", "")).strip()
         content = _safe_str(event.get("content", "")).strip()
         status = _safe_str(event.get("status", "")).strip()
+        trigger = _safe_str(event.get("trigger", "")).strip()
         label = title_text or content or f"事件 {index + 1}"
 
         event_id = _event_node_id(event, index, used_ids)
@@ -529,6 +545,7 @@ def build_story_brain_graph_data(
             ("标题", title_text),
             ("内容", content),
             ("状态", status),
+            ("触发条件", trigger if event_type == "伏笔" else ""),
             ("相关角色", "、".join(_safe_str(item) for item in _as_list(event.get("related_characters")))),
         ])
         nodes.append(
@@ -551,6 +568,7 @@ def build_story_brain_graph_data(
                     "title": title_text,
                     "content": content,
                     "status": status,
+                    "trigger": trigger,
                     "related_characters": [
                         _safe_str(item).strip()
                         for item in _as_list(event.get("related_characters"))

@@ -187,10 +187,19 @@ def _apply_story_brain_graph_edit(story_brain: dict, edit_event: dict) -> bool:
     if not isinstance(item, dict):
         return False
 
-    collection[selected_index] = {
+    candidate = {
         **item,
         **data,
     }
+    if collection_key == "events":
+        event_type = _story_brain_text(candidate.get("type"))
+        trigger = _story_brain_text(candidate.get("trigger"))
+        if event_type == "伏笔" and not trigger:
+            return False
+        if event_type != "伏笔":
+            candidate["trigger"] = ""
+
+    collection[selected_index] = candidate
     _save_story_brain_to_current_record(story_brain)
     return True
 
@@ -383,6 +392,7 @@ def _render_story_brain_character_editor(story_brain: dict):
                     "name": "",
                     "speech_style": "",
                     "behavior_style": "",
+                    "status": "",
                     "other": "",
                     "goal": "",
                     "secret": "",
@@ -418,6 +428,11 @@ def _render_story_brain_character_editor(story_brain: dict):
             value=_story_brain_text(character.get("behavior_style")),
             key=f"story_brain_character_behavior_style_{record_key}",
         )
+        status = st.text_area(
+            "状态（身体状态 / 伤势 / 当前姿势）",
+            value=_story_brain_text(character.get("status")),
+            key=f"story_brain_character_status_{record_key}",
+        )
         other = st.text_area("other", value=_story_brain_text(character.get("other")), key=f"story_brain_character_other_{record_key}")
         goal = st.text_area("goal", value=_story_brain_text(character.get("goal")), key=f"story_brain_character_goal_{record_key}")
         secret = st.text_area("secret", value=_story_brain_text(character.get("secret")), key=f"story_brain_character_secret_{record_key}")
@@ -431,6 +446,7 @@ def _render_story_brain_character_editor(story_brain: dict):
                     "name": name,
                     "speech_style": speech_style,
                     "behavior_style": behavior_style,
+                    "status": status,
                     "other": other,
                     "goal": goal,
                     "secret": secret,
@@ -556,6 +572,7 @@ def _render_story_brain_event_editor(story_brain: dict):
                     "title": "",
                     "content": "",
                     "status": "",
+                    "trigger": "",
                     "related_characters": [],
                 }
             )
@@ -588,6 +605,13 @@ def _render_story_brain_event_editor(story_brain: dict):
         title = st.text_input("title", value=_story_brain_text(event.get("title")), key=f"story_brain_event_title_{record_key}")
         content = st.text_area("content", value=_story_brain_text(event.get("content")), key=f"story_brain_event_content_{record_key}")
         status = st.text_input("status", value=_story_brain_text(event.get("status")), key=f"story_brain_event_status_{record_key}")
+        trigger = ""
+        if type_value == "伏笔":
+            trigger = st.text_area(
+                "trigger（什么时候且只有什么时候会触发这个伏笔，必填）",
+                value=_story_brain_text(event.get("trigger")),
+                key=f"story_brain_event_trigger_{record_key}",
+            )
 
         current_related = [
             _story_brain_text(item)
@@ -608,6 +632,9 @@ def _render_story_brain_event_editor(story_brain: dict):
         save_col, delete_col = st.columns(2)
         with save_col:
             if st.button("保存事件修改", key=f"story_brain_save_event_{record_key}", use_container_width=True):
+                if type_value == "伏笔" and not _story_brain_text(trigger):
+                    st.error("伏笔必须填写 trigger。")
+                    st.stop()
                 events[selected_index] = {
                     **event,
                     "id": _story_brain_text(event.get("id")) or _new_story_brain_id("event"),
@@ -615,6 +642,7 @@ def _render_story_brain_event_editor(story_brain: dict):
                     "title": title,
                     "content": content,
                     "status": status,
+                    "trigger": trigger if type_value == "伏笔" else "",
                     "related_characters": related_characters,
                 }
                 _save_story_brain_and_refresh(story_brain)

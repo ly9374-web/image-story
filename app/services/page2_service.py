@@ -42,17 +42,18 @@ STORY_BRAIN_SYSTEM_RULES = """
 规则：
 1. active_characters 中的 speech_style 会决定角色说话方式。
 2. active_characters 中的 behavior_style 会决定角色行动方式。
-3. active_characters 中的 goal 和 secret 会影响角色动机，但 secret 不一定能被其他角色知道。
-4. relationship 描述角色之间的当前关系，不能写出与之矛盾的互动。
-5. generation_constraints 是硬性限制，必须遵守。
-6. 当trigger在回复中出现时，让伏笔的content影响情节。
-7. trigger未在回复中出现，不得提到、解释、揭露、使用该伏笔，也不得让该伏笔影响情节。
-8. 伏笔一旦在正文中被明确提到、解释、揭露、使用或影响情节，就视为已触发。
-9. 不要让角色 OOC。
-10. 不要在respond中解释你使用了哪些记忆。
-11. 不要输出分析过程。
-12. 不要输出 JSON。
-13. 只输出正文。
+3. active_characters 中的 status 表示角色当前身体状态、受伤情况和姿势，生成时必须保持连续，不得忽略或随意恢复。
+4. active_characters 中的 goal 和 secret 会影响角色动机，但 secret 不一定能被其他角色知道。
+5. relationship 描述角色之间的当前关系，不能写出与之矛盾的互动。
+6. generation_constraints 是硬性限制，必须遵守。
+7. 当trigger在回复中出现时，让伏笔的content影响情节。
+8. trigger未在回复中出现，不得提到、解释、揭露、使用该伏笔，也不得让该伏笔影响情节。
+9. 伏笔一旦在正文中被明确提到、解释、揭露、使用或影响情节，就视为已触发。
+10. 不要让角色 OOC。
+11. 不要在respond中解释你使用了哪些记忆。
+12. 不要输出分析过程。
+13. 不要输出 JSON。
+14. 只输出正文。
 """.strip()
 
 STORY_BRAIN_UPDATE_SYSTEM_PROMPT = """

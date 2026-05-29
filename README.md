@@ -106,7 +106,7 @@ Page2 表单、容器和 widget keys：
 - Story Brain 全屏关闭按钮：`page2_story_brain_fullscreen_close_btn`
 - 角色新增按钮：`story_brain_add_character_btn`
 - 角色选择器：`story_brain_character_select`
-- 角色字段输入前缀：`story_brain_character_name_`、`story_brain_character_speech_style_`、`story_brain_character_behavior_style_`、`story_brain_character_other_`、`story_brain_character_goal_`、`story_brain_character_secret_`
+- 角色字段输入前缀：`story_brain_character_name_`、`story_brain_character_speech_style_`、`story_brain_character_behavior_style_`、`story_brain_character_status_`、`story_brain_character_other_`、`story_brain_character_goal_`、`story_brain_character_secret_`
 - 角色保存/删除按钮前缀：`story_brain_save_character_`、`story_brain_delete_character_`
 - 关系新增按钮：`story_brain_add_relationship_btn`
 - 关系选择器：`story_brain_relationship_select`
@@ -114,7 +114,7 @@ Page2 表单、容器和 widget keys：
 - 关系保存/删除按钮前缀：`story_brain_save_relationship_`、`story_brain_delete_relationship_`
 - 事件新增按钮：`story_brain_add_event_btn`
 - 事件选择器：`story_brain_event_select`
-- 事件字段输入前缀：`story_brain_event_type_`、`story_brain_event_title_`、`story_brain_event_content_`、`story_brain_event_status_`、`story_brain_event_related_characters_`
+- 事件字段输入前缀：`story_brain_event_type_`、`story_brain_event_title_`、`story_brain_event_content_`、`story_brain_event_status_`、`story_brain_event_trigger_`、`story_brain_event_related_characters_`
 - 事件保存/删除按钮前缀：`story_brain_save_event_`、`story_brain_delete_event_`
 
 Page2 主要 UI 区块：
@@ -125,6 +125,8 @@ Page2 主要 UI 区块：
 - Story Brain 区：交互式知识图谱、角色编辑、关系编辑、事件编辑、原始 JSON 查看。
 - Memory Pack 预览：`本轮将代入模型的 Story Brain Memory Pack`。
 - Story Brain 自动更新建议：`Story Brain 更新建议`，本轮生成后固定调用 DeepSeek 生成 `suggested_updates`，成功解析后自动增量写入当前 `ChatRecord.story_brain`。
+- 伏笔 trigger 规则：`type` 为 `伏笔` 的事件必须有非空 `trigger`，每轮进入 Memory Pack；trigger 未发生时禁止触发，触发后由 DeepSeek 输出 `delete` 自动删除。
+- 角色状态规则：`character.status` 记录身体状态、伤势和当前姿势；不记录心理状态、情绪、服装设定或身份背景。
 - 媒体记录区：图片/视频记录选择、预览、prompt 查看、URL 复制、删除当前记录。
 - 生成图片区：prompt 模式、主体、从最近助手回复生成图片 prompt、图片 prompt 编辑、图片 provider、参考图片 URL、生成图片。
 - 图生视频区：选择输入图片、视频 prompt、时长、生成视频。

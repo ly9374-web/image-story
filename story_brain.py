@@ -15,6 +15,7 @@ CHARACTER_FIELDS = [
     "name",
     "speech_style",
     "behavior_style",
+    "status",
     "goal",
     "secret",
     "other",
@@ -151,6 +152,35 @@ def _relationship_value(relationship: dict) -> str:
     return rel_type or detail
 
 
+def _foreshadowing_constraint(event: dict) -> str:
+    title = _safe_str(event.get("title", "")).strip()
+    content = _safe_str(event.get("content", "")).strip()
+    trigger = _safe_str(event.get("trigger", "")).strip()
+    status = _safe_str(event.get("status", "")).strip()
+    related_characters = [
+        _safe_str(item).strip()
+        for item in _as_list(event.get("related_characters"))
+        if _safe_str(item).strip()
+    ]
+
+    parts = ["伏笔"]
+    if title:
+        parts.append(f"《{title}》")
+    if content:
+        parts.append(f"内容：{content}")
+    if trigger:
+        parts.append(f"触发条件：“{trigger}")
+    else:
+        parts.append("触发条件：未设置；不得触发该伏笔，直到补充 trigger")
+    if status:
+        parts.append(f"状态：{status}")
+    if related_characters:
+        parts.append("相关角色：" + "、".join(related_characters))
+
+    parts.append("限制：trigger 未明确发生时，不得提到、解释、揭露、使用该伏笔，也不得让该伏笔影响情节。")
+    return "；".join(parts)
+
+
 def load_story_brain(path: str = "story_brain.json") -> dict:
     try:
         text = Path(path).read_text(encoding="utf-8")
@@ -237,16 +267,17 @@ def build_memory_pack(current_text: str, story_brain: dict) -> dict:
             continue
 
         event_type = _safe_str(event.get("type", "")).strip()
-        status = _safe_str(event.get("status", "")).strip()
         content = _safe_str(event.get("content", "")).strip()
-        if not content:
-            continue
 
         if event_type == "限制":
+            if not content:
+                continue
             generation_constraints.append(content)
-        elif event_type == "伏笔" and "不可揭露" in status:
-            generation_constraints.append(content)
+        elif event_type == "伏笔":
+            generation_constraints.append(_foreshadowing_constraint(event))
         elif event_type == "主线":
+            if not content:
+                continue
             generation_constraints.append(content)
 
     return {
@@ -390,16 +421,16 @@ def extract_story_brain_update_prompt(
 你的任务：
 根据“用户输入 + 模型新生成内容 + 当前 Story Brain”，判断是否出现需要更新 Story Brain 的内容，包括：
 - 新角色
-- 角色说话风格、行为风格、目标、秘密或其他特征变化
+- 角色说话风格、行为风格、身体状态、目标、秘密或其他特征变化
 - 角色关系新增或变化
-- 伏笔新增、状态变化或需要删除
+- 伏笔新增、trigger 推断、状态变化或触发后删除
 - 主线推进
 - 小说限制新增、变化或删除
 
 重要规则：
 1. 你只能生成更新建议 suggested_updates，不能重建整个 Story Brain。
 2. 更新必须基于当前 Story Brain 增量修改。
-3. 不要建议删除已有记忆，除非文本中明确说明该记忆已失效、被撤销或需要删除。
+3. 不要建议删除已有记忆，除非文本中明确说明该记忆已失效、被撤销、需要删除，或已有伏笔已经触发。
 4. 如果只是正文里的临时描写，不要过度记录。
 5. 如果没有任何需要更新的内容，输出 {{"suggested_updates": []}}。
 6. 新增数据的 id 请使用对应前缀：char_、rel_、event_。
@@ -410,7 +441,15 @@ def extract_story_brain_update_prompt(
 11. 不要输出代码块。
 12. 不要输出解释文字。
 13. 如果当前 Story Brain 为空，也要从本轮用户输入和模型新生成内容中主动抽取新角色、关系、主线、伏笔、限制，并以 add 建议输出。
-14. 如果发现新的重要角色、稳定关系、主线推进、不可揭露伏笔或长期限制，即使当前 Story Brain 中还没有相关节点，也应该生成 add 建议。
+14. 如果发现新的重要角色、稳定关系、主线推进、伏笔或长期限制，即使当前 Story Brain 中还没有相关节点，也应该生成 add 建议。
+15. 伏笔定义：只有“之后会对剧情有影响，同时目前还未造成影响的事实”才算伏笔；如果未来不会对剧情造成影响，或在本轮已经造成影响的事实，不属于伏笔。属于伏笔的案例：某人受伤/无人注意到的警报 不属于伏笔的案例：某人吃了饭/被大家注意到的警报。 
+16. 新增 type 为“伏笔”的 event 时，data.trigger 必须是非空字符串。trigger 要推断“什么时候且只有什么时候这个伏笔会对剧情产生影响”。 
+17. trigger 只给 type 为“伏笔”的 event 使用；主线和限制不要使用 trigger。
+18. trigger至少包含两个要求：1.提到何时触发，2.触发发生什么。 trigger的范例：xx走路时会触发伏笔，脚伤发作影响行动。/ 当主角团去到xx会触发伏笔，陷阱会被触发
+19. 对已有伏笔，如果本轮模型新生成内容中已经明确提到、解释、揭露、使用该伏笔，或让该伏笔影响情节，必须输出 action 为 delete 的 event 更新并填写已有 target_id。
+20. character.status 只记录角色当前身体状态、受伤情况和当前姿势，例如流血、骨折、昏迷、站着、坐着、躺着、跪着、被束缚、行动受限等。
+21. character.status 必须总结为当前最新身体状态，不要写成历史流水账。
+22. character.status 不得记录心理状态、情绪、态度、服装设定或身份背景；服装设定和身份背景应写入 other。
 
 输出 JSON 格式必须严格符合：
 {{
@@ -431,6 +470,7 @@ def extract_story_brain_update_prompt(
   "name": "<角色名>",
   "speech_style": "<说话风格>",
   "behavior_style": "<行为风格>",
+  "status": "<身体状态、受伤情况、当前姿势；不要记录心理状态、情绪、服装设定或身份背景>",
   "other": "<其他角色特点>",
   "goal": "<角色目标>",
   "secret": "<角色秘密或隐藏信息>"
@@ -452,6 +492,7 @@ def extract_story_brain_update_prompt(
   "title": "<事件标题>",
   "content": "<事件内容>",
   "status": "<事件状态>",
+  "trigger": "<仅伏笔使用，非空；什么时候且只有什么时候会触发这个伏笔>",
   "related_characters": ["<相关角色名>"]
 }}
 
@@ -519,6 +560,14 @@ def apply_story_brain_updates(
         collection = updated[collection_key]
 
         if action == "add":
+            if collection_key == "events":
+                data = dict(data)
+                event_type = _safe_str(data.get("type", "")).strip()
+                trigger = _safe_str(data.get("trigger", "")).strip()
+                if event_type == "伏笔" and not trigger:
+                    continue
+                if event_type != "伏笔":
+                    data["trigger"] = ""
             collection.append(dict(data))
             continue
 
@@ -537,7 +586,18 @@ def apply_story_brain_updates(
         if action == "modify":
             original = collection[target_index]
             if isinstance(original, dict):
-                original.update(data)
+                candidate = {
+                    **original,
+                    **data,
+                }
+                if collection_key == "events":
+                    event_type = _safe_str(candidate.get("type", "")).strip()
+                    trigger = _safe_str(candidate.get("trigger", "")).strip()
+                    if event_type == "伏笔" and not trigger:
+                        continue
+                    if event_type != "伏笔":
+                        candidate["trigger"] = ""
+                collection[target_index] = candidate
             continue
 
         if action == "delete":

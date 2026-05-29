@@ -213,6 +213,7 @@
             fieldHtml("name", "name", data.name) +
             fieldHtml("speech_style", "speech_style", data.speech_style, true) +
             fieldHtml("behavior_style", "behavior_style", data.behavior_style, true) +
+            fieldHtml("status", "状态（身体状态 / 伤势 / 当前姿势）", data.status, true) +
             fieldHtml("other", "other", data.other, true) +
             fieldHtml("goal", "goal", data.goal, true) +
             fieldHtml("secret", "secret", data.secret, true);
@@ -228,6 +229,7 @@
             fieldHtml("title", "title", data.title) +
             fieldHtml("content", "content", data.content, true) +
             fieldHtml("status", "status", data.status) +
+            fieldHtml("trigger", "trigger（仅伏笔使用，必填）", data.trigger, true) +
             fieldHtml("related_characters", "related_characters（逗号分隔）", related);
         } else if (target.edgeType === "relationship") {
           modalTitle.textContent = "编辑关系";
@@ -292,6 +294,7 @@
             name: formValue(formData, "name"),
             speech_style: formValue(formData, "speech_style"),
             behavior_style: formValue(formData, "behavior_style"),
+            status: formValue(formData, "status"),
             other: formValue(formData, "other"),
             goal: formValue(formData, "goal"),
             secret: formValue(formData, "secret"),
@@ -304,6 +307,7 @@
             title: formValue(formData, "title"),
             content: formValue(formData, "content"),
             status: formValue(formData, "status"),
+            trigger: formValue(formData, "trigger"),
             related_characters: formValue(formData, "related_characters")
               .split(",")
               .map((item) => item.trim())
