@@ -47,6 +47,7 @@ def _ensure_state():
     st.session_state.setdefault("page2_image_prompt", "")
     st.session_state.setdefault("page2_image_prompt_mode", "normal")
     st.session_state.setdefault("page2_image_prompt_subject", "")
+    st.session_state.setdefault("page2_video_prompt", "动起来")
     st.session_state.setdefault("page2_url_hidden_space", False)
     st.session_state.setdefault("page2_story_brain_suggested_updates", None)
     st.session_state.setdefault("page2_story_brain_update_error", "")
@@ -902,7 +903,20 @@ def _render_media_column():
             options.append(label)
             by_id[label] = item.id
 
-        selected_label = st.selectbox("选择记录", options=options, label_visibility="collapsed")
+        selected_media_id = str(st.session_state.get("page2_selected_media_id", "") or "")
+        selected_index = 0
+        if selected_media_id:
+            for index, label in enumerate(options):
+                if by_id.get(label) == selected_media_id:
+                    selected_index = index
+                    break
+
+        selected_label = st.selectbox(
+            "选择记录",
+            options=options,
+            index=selected_index,
+            label_visibility="collapsed",
+        )
         selected_id = by_id.get(selected_label, "")
         st.session_state.page2_selected_media_id = selected_id
 
@@ -983,6 +997,7 @@ def _render_media_column():
             try:
                 record = page2_service.generate_image(provider=provider, prompt=prompt_text, image_urls=image_urls)
                 st.session_state.page2_generated_media = media + [record]
+                st.session_state.page2_selected_media_id = record.id
                 _upsert_record()
                 st.success("图片已生成并保存到记录")
                 st.rerun()
@@ -1005,7 +1020,19 @@ def _render_media_column():
         candidate_labels.append(label)
         label_to_id[label] = item.id
 
-    selected_label = st.selectbox("选择输入图片", options=candidate_labels)
+    selected_media_id = str(st.session_state.get("page2_selected_media_id", "") or "")
+    selected_image_index = len(image_candidates) - 1
+    if selected_media_id:
+        for index, item in enumerate(image_candidates):
+            if item.id == selected_media_id:
+                selected_image_index = index
+                break
+
+    selected_label = st.selectbox(
+        "选择输入图片",
+        options=candidate_labels,
+        index=selected_image_index,
+    )
     source_id = label_to_id.get(selected_label, "")
     source = None
     for item in image_candidates:
@@ -1015,7 +1042,7 @@ def _render_media_column():
     if source is None:
         return
 
-    video_prompt = st.text_input("视频 prompt", value="")
+    video_prompt = st.text_input("视频 prompt", key="page2_video_prompt")
     ctx = page2_service.load_context_from_settings()
     if str(ctx.selected_video_generation_provider or "") == "zhipu":
         seconds = st.selectbox("时长（秒）", options=[5, 10], index=0)
@@ -1032,6 +1059,7 @@ def _render_media_column():
                     seconds=int(seconds),
                 )
                 st.session_state.page2_generated_media = media + [video_record]
+                st.session_state.page2_selected_media_id = video_record.id
                 _upsert_record()
                 st.success("视频已生成并保存到记录")
                 st.rerun()

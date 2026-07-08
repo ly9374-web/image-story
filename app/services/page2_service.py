@@ -414,7 +414,7 @@ def generate_video_from_image(
 ) -> GeneratedImageRecord:
     prompt = str(prompt or "").strip()
     if not prompt:
-        raise ValueError("视频 prompt 不能为空。")
+        prompt = "动起来"
 
     provider = str(ctx.selected_video_generation_provider or "domoai").strip()
 
