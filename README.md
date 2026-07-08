@@ -6,13 +6,15 @@
 streamlit run streamlit_app.py
 ```
 
-你需要把自己的 API Key 填到“模型”页面，或者设置环境变量：
-- XAI_CHAT_API_KEY
-- XAI_IMAGE_API_KEY
+你需要把自己的 API Key 填到“模型”页面，或者在 Streamlit Cloud 的 App settings / Secrets 中配置：
+- GROK_CHAT_API_KEY
+- GROK_IMAGE_API_KEY
 - REPLICATE_API_TOKEN
 - DEEPSEEK_API_KEY
 - DOMOAI_API_KEY
 - ZHIPU_API_KEY
+
+API Key 读取优先级：模型页面用户填写并保存的值 > Streamlit Secrets > 空值并提示缺少对应 API Key。
 
 说明：
 - 这是把原 SwiftUI 逻辑迁移到 Web 版的实现。

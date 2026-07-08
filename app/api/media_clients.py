@@ -108,9 +108,15 @@ class GrokImageAPIClient:
         image_urls = [url.strip() for url in image_urls if str(url).strip()]
         image_urls = image_urls[:5]
 
+        effective_grok_image_api_key = XAIConfig.image_api_key()
+        if not effective_grok_image_api_key:
+            raise RuntimeError(
+                "缺少 Grok 生图 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 GROK_IMAGE_API_KEY。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + XAIConfig.image_api_key(),
+            "Authorization": "Bearer " + effective_grok_image_api_key,
         }
 
         if not image_urls:
@@ -188,9 +194,15 @@ class ReplicateImageAPIClient:
         model = cls.MODELS[provider]
         url = "https://api.replicate.com/v1/models/" + model + "/predictions"
 
+        effective_replicate_api_token = ReplicateConfig.api_token()
+        if not effective_replicate_api_token:
+            raise RuntimeError(
+                "缺少 Replicate API Token。请在模型页面填写，或在 Streamlit Secrets 配置 REPLICATE_API_TOKEN。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + ReplicateConfig.api_token(),
+            "Authorization": "Bearer " + effective_replicate_api_token,
             "Prefer": "wait",
         }
 
@@ -301,9 +313,15 @@ class DomoAIClient:
         if seconds < 1 or seconds > 10:
             raise ValueError("视频时长必须在 1 到 10 秒之间")
 
+        effective_domoai_api_key = DomoAIConfig.api_key()
+        if not effective_domoai_api_key:
+            raise RuntimeError(
+                "缺少 DomoAI API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + DomoAIConfig.api_key(),
+            "Authorization": "Bearer " + effective_domoai_api_key,
         }
 
         body = {
@@ -360,8 +378,14 @@ class DomoAIClient:
 
         url = "https://api.domoai.com/v1/tasks/" + task_id
 
+        effective_domoai_api_key = DomoAIConfig.api_key()
+        if not effective_domoai_api_key:
+            raise RuntimeError(
+                "缺少 DomoAI API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
+            )
+
         headers = {
-            "Authorization": "Bearer " + DomoAIConfig.api_key(),
+            "Authorization": "Bearer " + effective_domoai_api_key,
         }
 
         for _ in range(80):
@@ -449,9 +473,15 @@ class ZhipuVideoClient:
         if seconds not in (5, 10):
             raise ValueError("智谱视频时长只支持 5 秒或 10 秒。")
 
+        effective_zhipu_api_key = ZhipuConfig.api_key()
+        if not effective_zhipu_api_key:
+            raise RuntimeError(
+                "缺少智谱 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + ZhipuConfig.api_key(),
+            "Authorization": "Bearer " + effective_zhipu_api_key,
         }
 
         body = {
@@ -500,8 +530,14 @@ class ZhipuVideoClient:
 
         url = cls.POLL_URL_PREFIX + task_id
 
+        effective_zhipu_api_key = ZhipuConfig.api_key()
+        if not effective_zhipu_api_key:
+            raise RuntimeError(
+                "缺少智谱 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
+            )
+
         headers = {
-            "Authorization": "Bearer " + ZhipuConfig.api_key(),
+            "Authorization": "Bearer " + effective_zhipu_api_key,
         }
 
         for _ in range(120):
@@ -538,15 +574,11 @@ class ZhipuVideoClient:
 
 
 class CloudinaryUploader:
-    DEFAULT_CLOUD_NAME = "dxi0op4os"
-    DEFAULT_API_KEY = "246111749763816"
-    DEFAULT_API_SECRET = "5hbNk8Vqgd9pGKmACjdfMXjJFwM"
-
     @staticmethod
     def _upload_files(files):
-        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip() or CloudinaryUploader.DEFAULT_CLOUD_NAME
-        api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip() or CloudinaryUploader.DEFAULT_API_KEY
-        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip() or CloudinaryUploader.DEFAULT_API_SECRET
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
+        api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip()
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
 
         if not cloud_name or not api_key or not api_secret:
             raise RuntimeError(

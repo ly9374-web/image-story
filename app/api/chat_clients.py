@@ -214,9 +214,15 @@ class GrokAPIClient:
 
     @classmethod
     def _post_responses(cls, body, label="Grok Request"):
+        effective_grok_chat_api_key = XAIConfig.chat_api_key()
+        if not effective_grok_chat_api_key:
+            raise RuntimeError(
+                "缺少 Grok 聊天 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 GROK_CHAT_API_KEY。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + XAIConfig.chat_api_key(),
+            "Authorization": "Bearer " + effective_grok_chat_api_key,
         }
 
         debug_log("====== " + label + " ======")
@@ -420,9 +426,15 @@ class DeepSeekAPIClient:
             }
         )
 
+        effective_deepseek_api_key = DeepSeekConfig.api_key()
+        if not effective_deepseek_api_key:
+            raise RuntimeError(
+                "缺少 DeepSeek API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DEEPSEEK_API_KEY。"
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + DeepSeekConfig.api_key(),
+            "Authorization": "Bearer " + effective_deepseek_api_key,
         }
 
         body = {

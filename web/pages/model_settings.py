@@ -8,12 +8,12 @@ FIELDS = [
     (
         "输入 Grok 聊天 API Key（会本地持久化保存）",
         AppStorageKeys.XAI_CHAT_API_KEY,
-        "XAI_CHAT_API_KEY",
+        "GROK_CHAT_API_KEY",
     ),
     (
         "输入 Grok 生图 API Key（会本地持久化保存）",
         AppStorageKeys.XAI_IMAGE_API_KEY,
-        "XAI_IMAGE_API_KEY",
+        "GROK_IMAGE_API_KEY",
     ),
     (
         "输入 Replicate API Token（会本地持久化保存）",

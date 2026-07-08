@@ -1,6 +1,7 @@
 import json
-import os
 from pathlib import Path
+
+import streamlit as st
 
 
 # =========================
@@ -164,8 +165,7 @@ settings = SettingsStore(USER_DEFAULTS_PATH)
 def first_non_empty(*values):
     """
     返回第一个非空字符串。
-    用来模拟 Swift 里：
-    先读 UserDefaults，如果没有，再读环境变量，如果还没有，返回占位符。
+    用于在多个本地持久化字段中保留旧 key 的兼容读取。
     """
     for value in values:
         if value is None:
@@ -174,6 +174,29 @@ def first_non_empty(*values):
         text = str(value).strip()
         if text:
             return text
+
+    return ""
+
+
+def get_effective_api_key(user_value: str | None, secret_name: str) -> str:
+    """
+    API Key 优先级：
+    1. 网页内部用户填写并本地保存的值
+    2. Streamlit Secrets 中的默认值
+    3. 空字符串
+    """
+    user_text = str(user_value or "").strip()
+    if user_text:
+        return user_text
+
+    try:
+        secret_value = st.secrets.get(secret_name, "")
+    except Exception:
+        secret_value = ""
+
+    secret_text = str(secret_value or "").strip()
+    if secret_text:
+        return secret_text
 
     return ""
 
@@ -219,23 +242,27 @@ masked_authorization_header = mask_authorization_header
 class XAIConfig:
     @staticmethod
     def chat_api_key():
-        return first_non_empty(
+        grok_chat_api_key = first_non_empty(
             settings.get(AppStorageKeys.XAI_CHAT_API_KEY, ""),
             settings.get(AppStorageKeys.XAI_API_KEY, ""),
-            os.environ.get("XAI_CHAT_API_KEY", ""),
-            os.environ.get("XAI_API_KEY", ""),
-            "<XAI_CHAT_API_KEY>",
         )
+        effective_grok_chat_api_key = get_effective_api_key(
+            grok_chat_api_key,
+            "GROK_CHAT_API_KEY",
+        )
+        return effective_grok_chat_api_key
 
     @staticmethod
     def image_api_key():
-        return first_non_empty(
+        grok_image_api_key = first_non_empty(
             settings.get(AppStorageKeys.XAI_IMAGE_API_KEY, ""),
             settings.get(AppStorageKeys.XAI_API_KEY, ""),
-            os.environ.get("XAI_IMAGE_API_KEY", ""),
-            os.environ.get("XAI_API_KEY", ""),
-            "<XAI_IMAGE_API_KEY>",
         )
+        effective_grok_image_api_key = get_effective_api_key(
+            grok_image_api_key,
+            "GROK_IMAGE_API_KEY",
+        )
+        return effective_grok_image_api_key
 
 
 # =========================
@@ -245,11 +272,12 @@ class XAIConfig:
 class ReplicateConfig:
     @staticmethod
     def api_token():
-        return first_non_empty(
-            settings.get(AppStorageKeys.REPLICATE_API_TOKEN, ""),
-            os.environ.get("REPLICATE_API_TOKEN", ""),
-            "<REPLICATE_API_TOKEN>",
+        replicate_api_token = settings.get(AppStorageKeys.REPLICATE_API_TOKEN, "")
+        effective_replicate_api_token = get_effective_api_key(
+            replicate_api_token,
+            "REPLICATE_API_TOKEN",
         )
+        return effective_replicate_api_token
 
 
 # =========================
@@ -259,11 +287,12 @@ class ReplicateConfig:
 class DeepSeekConfig:
     @staticmethod
     def api_key():
-        return first_non_empty(
-            settings.get(AppStorageKeys.DEEPSEEK_API_KEY, ""),
-            os.environ.get("DEEPSEEK_API_KEY", ""),
-            "<DEEPSEEK_API_KEY>",
+        deepseek_api_key = settings.get(AppStorageKeys.DEEPSEEK_API_KEY, "")
+        effective_deepseek_api_key = get_effective_api_key(
+            deepseek_api_key,
+            "DEEPSEEK_API_KEY",
         )
+        return effective_deepseek_api_key
 
 
 # =========================
@@ -273,11 +302,12 @@ class DeepSeekConfig:
 class DomoAIConfig:
     @staticmethod
     def api_key():
-        return first_non_empty(
-            settings.get(AppStorageKeys.DOMOAI_API_KEY, ""),
-            os.environ.get("DOMOAI_API_KEY", ""),
-            "<DOMOAI_API_KEY>",
+        domoai_api_key = settings.get(AppStorageKeys.DOMOAI_API_KEY, "")
+        effective_domoai_api_key = get_effective_api_key(
+            domoai_api_key,
+            "DOMOAI_API_KEY",
         )
+        return effective_domoai_api_key
 
 
 # =========================
@@ -287,8 +317,9 @@ class DomoAIConfig:
 class ZhipuConfig:
     @staticmethod
     def api_key():
-        return first_non_empty(
-            settings.get(AppStorageKeys.ZHIPU_API_KEY, ""),
-            os.environ.get("ZHIPU_API_KEY", ""),
-            "<ZHIPU_API_KEY>",
+        zhipu_api_key = settings.get(AppStorageKeys.ZHIPU_API_KEY, "")
+        effective_zhipu_api_key = get_effective_api_key(
+            zhipu_api_key,
+            "ZHIPU_API_KEY",
         )
+        return effective_zhipu_api_key
