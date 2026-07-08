@@ -1,6 +1,12 @@
 import streamlit as st
 
-from app.config import AppStorageKeys, has_streamlit_secret, settings
+from app.config import (
+    AppStorageKeys,
+    has_invalid_streamlit_secret,
+    has_streamlit_secret,
+    is_latin1_api_value,
+    settings,
+)
 from web.nav import back
 
 
@@ -67,7 +73,12 @@ def _flash_key(storage_key: str) -> str:
 def _key_status(storage_key: str, secret_name: str) -> str:
     saved = str(settings.get(storage_key, "") or "").strip()
     if saved:
+        if not is_latin1_api_value(saved):
+            return "已填入（字符异常）"
         return "已填入"
+
+    if has_invalid_streamlit_secret(secret_name):
+        return "默认 Key 字符异常"
 
     if has_streamlit_secret(secret_name):
         return "已配置默认 Key"

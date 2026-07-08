@@ -9,7 +9,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from app.api.media_clients import CloudinaryUploader
-from app.config import AppStorageKeys, settings
+from app.config import AppStorageKeys, settings, user_facing_error_message
 from app.models import GeneratedMediaKind, Page2ConversationTurn
 from app.services import chat_records, page2_service, stored_urls, system_prompts
 from graph_view import GRAPH_HEIGHT_PX, GRAPH_NODE_SPACING, build_story_brain_graph_data
@@ -36,6 +36,10 @@ def _chat_scope() -> str | None:
 
 def _decode_image_base64(b64: str) -> bytes:
     return base64.b64decode(b64.encode("ascii"))
+
+
+def _show_error(exc: Exception):
+    st.error(user_facing_error_message(exc))
 
 
 def _ensure_state():
@@ -853,7 +857,7 @@ def _render_chat_column():
                 story_brain_enabled=story_brain_enabled,
             )
         except Exception as exc:
-            reply = "请求失败，请稍后重试。\n" + str(exc)
+            reply = "请求失败，请稍后重试。\n" + user_facing_error_message(exc)
 
     # 写回最后一条
     last = st.session_state.page2_turns[-1]
@@ -881,7 +885,7 @@ def _render_chat_column():
                 st.session_state["page2_story_brain_update_applied"] = bool(updates)
             except Exception as exc:
                 st.session_state["page2_story_brain_suggested_updates"] = None
-                st.session_state["page2_story_brain_update_error"] = str(exc)
+                st.session_state["page2_story_brain_update_error"] = user_facing_error_message(exc)
                 st.session_state["page2_story_brain_update_turn_id"] = last.id
                 st.session_state["page2_story_brain_update_applied"] = False
 
@@ -979,7 +983,7 @@ def _render_media_column():
                 st.session_state.page2_image_prompt = prompt
                 st.success("图片 prompt 已生成")
             except Exception as exc:
-                st.error(str(exc))
+                _show_error(exc)
 
     prompt_text = st.text_area("图片 prompt（可编辑）", value=st.session_state.page2_image_prompt, height=160)
     st.session_state.page2_image_prompt = prompt_text
@@ -1002,7 +1006,7 @@ def _render_media_column():
                 st.success("图片已生成并保存到记录")
                 st.rerun()
             except Exception as exc:
-                st.error(str(exc))
+                _show_error(exc)
 
     st.divider()
     st.subheader("图生视频")
@@ -1064,7 +1068,7 @@ def _render_media_column():
                 st.success("视频已生成并保存到记录")
                 st.rerun()
             except Exception as exc:
-                st.error(str(exc))
+                _show_error(exc)
 
     st.divider()
     st.subheader("URL 收藏")
@@ -1081,7 +1085,7 @@ def _render_media_column():
                 st.session_state.page2_url_hidden_space = url_state.hidden_space
                 st.rerun()
             except Exception as exc:
-                st.error(str(exc))
+                _show_error(exc)
     with add_col2:
         uploaded = st.file_uploader("上传图片获取 URL（Cloudinary）", type=["png", "jpg", "jpeg", "webp"])
         if uploaded is not None and st.button("上传并复制 URL", use_container_width=True):
@@ -1095,7 +1099,7 @@ def _render_media_column():
                     st.success("上传成功（URL 可复制）")
                     st.text_input("URL", value=secure_url)
                 except Exception as exc:
-                    st.error(str(exc))
+                    _show_error(exc)
 
     visible = stored_urls.visible_records(url_state)
     if visible:

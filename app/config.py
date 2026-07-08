@@ -204,9 +204,7 @@ def get_effective_api_key(user_value: str | None, secret_name: str) -> str:
 
 
 def _require_latin1_api_value(value: str, secret_name: str) -> str:
-    try:
-        value.encode("latin-1")
-    except UnicodeEncodeError:
+    if not is_latin1_api_value(value):
         raise ValueError(
             secret_name
             + " 包含中文或其他无法用于 HTTP 认证的字符。"
@@ -217,6 +215,15 @@ def _require_latin1_api_value(value: str, secret_name: str) -> str:
     return value
 
 
+def is_latin1_api_value(value: str | None) -> bool:
+    try:
+        str(value or "").encode("latin-1")
+    except UnicodeEncodeError:
+        return False
+
+    return True
+
+
 def has_streamlit_secret(secret_name: str) -> bool:
     try:
         secret_value = st.secrets.get(secret_name, "")
@@ -224,6 +231,28 @@ def has_streamlit_secret(secret_name: str) -> bool:
         return False
 
     return bool(str(secret_value or "").strip())
+
+
+def has_invalid_streamlit_secret(secret_name: str) -> bool:
+    try:
+        secret_value = st.secrets.get(secret_name, "")
+    except Exception:
+        return False
+
+    secret_text = str(secret_value or "").strip()
+    return bool(secret_text) and not is_latin1_api_value(secret_text)
+
+
+def user_facing_error_message(exc: Exception) -> str:
+    message = str(exc)
+    if isinstance(exc, UnicodeEncodeError) or "'latin-1' codec can't encode" in message:
+        return (
+            "某个 API Key、Token、Secret 或 HTTP 认证字段里包含中文/特殊字符，"
+            "无法放进请求头。请到“模型”页面查看是否有“字符异常”的项目，"
+            "删除后重新填写正确值；如果显示默认 Key 字符异常，请检查 Streamlit Secrets。"
+        )
+
+    return message
 
 
 def debug_log(*items):
