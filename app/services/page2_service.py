@@ -400,7 +400,7 @@ def _prepare_zhipu_cloudinary_image_url(source_record: GeneratedImageRecord) -> 
         raise RuntimeError(
             "上传图片到 Cloudinary 失败，无法生成智谱视频。"
             "请确认 Cloudinary API Key 已在模型页面或 Streamlit Secrets 配置，"
-            "并确认 CLOUDINARY_API_SECRET 已在 Streamlit Secrets 配置。原始错误："
+            "并确认 Cloudinary API Secret 已在模型页面或 Streamlit Secrets 配置。原始错误："
             + str(exc)
         )
 

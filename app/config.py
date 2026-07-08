@@ -61,6 +61,7 @@ class AppStorageKeys:
 
     REPLICATE_API_TOKEN = "replicateApiToken"
     CLOUDINARY_API_KEY = "cloudinaryApiKey"
+    CLOUDINARY_API_SECRET = "cloudinaryApiSecret"
 
     DEBUG_LOG_ENABLED = "debugLogEnabled"
 
@@ -357,9 +358,9 @@ class CloudinaryConfig:
 
     @staticmethod
     def api_secret():
-        try:
-            secret_value = st.secrets.get("CLOUDINARY_API_SECRET", "")
-        except Exception:
-            secret_value = ""
-
-        return str(secret_value or "").strip()
+        cloudinary_api_secret = settings.get(AppStorageKeys.CLOUDINARY_API_SECRET, "")
+        effective_cloudinary_api_secret = get_effective_api_key(
+            cloudinary_api_secret,
+            "CLOUDINARY_API_SECRET",
+        )
+        return effective_cloudinary_api_secret

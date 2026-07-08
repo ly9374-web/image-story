@@ -587,7 +587,7 @@ class CloudinaryUploader:
 
         if not cloudinary_api_secret:
             raise RuntimeError(
-                "缺少 Cloudinary API Secret。请在 Streamlit Secrets 配置 CLOUDINARY_API_SECRET。"
+                "缺少 Cloudinary API Secret。请在模型页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_SECRET。"
             )
 
         url = "https://api.cloudinary.com/v1_1/" + cloud_name + "/image/upload"
