@@ -189,7 +189,7 @@ def get_effective_api_key(user_value: str | None, secret_name: str) -> str:
     """
     user_text = str(user_value or "").strip()
     if user_text:
-        return user_text
+        return _require_latin1_api_value(user_text, secret_name)
 
     try:
         secret_value = st.secrets.get(secret_name, "")
@@ -198,9 +198,23 @@ def get_effective_api_key(user_value: str | None, secret_name: str) -> str:
 
     secret_text = str(secret_value or "").strip()
     if secret_text:
-        return secret_text
+        return _require_latin1_api_value(secret_text, secret_name)
 
     return ""
+
+
+def _require_latin1_api_value(value: str, secret_name: str) -> str:
+    try:
+        value.encode("latin-1")
+    except UnicodeEncodeError:
+        raise ValueError(
+            secret_name
+            + " 包含中文或其他无法用于 HTTP 认证的字符。"
+            + "请在“模型”页面删除该项后重新填写正确的 Key，"
+            + "或检查 Streamlit Secrets 中的同名配置。"
+        )
+
+    return value
 
 
 def has_streamlit_secret(secret_name: str) -> bool:
