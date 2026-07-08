@@ -13,8 +13,11 @@ streamlit run streamlit_app.py
 - DEEPSEEK_API_KEY
 - DOMOAI_API_KEY
 - ZHIPU_API_KEY
+- CLOUDINARY_API_KEY
+- CLOUDINARY_API_SECRET
 
 API Key 读取优先级：模型页面用户填写并保存的值 > Streamlit Secrets > 空值并提示缺少对应 API Key。
+Cloudinary 的 cloud name 默认使用 `dxi0op4os`；Cloudinary API Secret 仅从 Streamlit Secrets 读取。
 
 说明：
 - 这是把原 SwiftUI 逻辑迁移到 Web 版的实现。

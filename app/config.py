@@ -60,6 +60,7 @@ class AppStorageKeys:
     XAI_IMAGE_API_KEY = "xaiImageApiKey"
 
     REPLICATE_API_TOKEN = "replicateApiToken"
+    CLOUDINARY_API_KEY = "cloudinaryApiKey"
 
     DEBUG_LOG_ENABLED = "debugLogEnabled"
 
@@ -201,6 +202,15 @@ def get_effective_api_key(user_value: str | None, secret_name: str) -> str:
     return ""
 
 
+def has_streamlit_secret(secret_name: str) -> bool:
+    try:
+        secret_value = st.secrets.get(secret_name, "")
+    except Exception:
+        return False
+
+    return bool(str(secret_value or "").strip())
+
+
 def debug_log(*items):
     """
     对应 Swift 里的 DebugLog.log(...)
@@ -323,3 +333,33 @@ class ZhipuConfig:
             "ZHIPU_API_KEY",
         )
         return effective_zhipu_api_key
+
+
+# =========================
+# Cloudinary 上传配置
+# =========================
+
+class CloudinaryConfig:
+    DEFAULT_CLOUD_NAME = "dxi0op4os"
+
+    @staticmethod
+    def cloud_name():
+        return CloudinaryConfig.DEFAULT_CLOUD_NAME
+
+    @staticmethod
+    def api_key():
+        cloudinary_api_key = settings.get(AppStorageKeys.CLOUDINARY_API_KEY, "")
+        effective_cloudinary_api_key = get_effective_api_key(
+            cloudinary_api_key,
+            "CLOUDINARY_API_KEY",
+        )
+        return effective_cloudinary_api_key
+
+    @staticmethod
+    def api_secret():
+        try:
+            secret_value = st.secrets.get("CLOUDINARY_API_SECRET", "")
+        except Exception:
+            secret_value = ""
+
+        return str(secret_value or "").strip()

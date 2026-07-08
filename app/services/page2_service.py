@@ -163,7 +163,7 @@ def generate_story_brain_update_suggestions(
             system_prompt=STORY_BRAIN_UPDATE_SYSTEM_PROMPT,
             context_messages=[],
             user_message=update_prompt,
-            model="grok-4-1-fast-reasoning",
+            model="grok-4.3",
             temperature=ctx.temperature,
         )
     else:
@@ -275,7 +275,7 @@ def send_message(
             system_prompt=system_prompt,
             context_messages=context_messages,
             user_message=user_message_for_model,
-            model="grok-4.20-0309-non-reasoning",
+            model="grok-4.3",
             temperature=ctx.temperature,
         )
 
@@ -283,7 +283,7 @@ def send_message(
         system_prompt=system_prompt,
         context_messages=context_messages,
         user_message=user_message_for_model,
-        model="grok-4-1-fast-reasoning",
+        model="grok-4.3",
         temperature=ctx.temperature,
     )
 
@@ -321,7 +321,7 @@ def generate_image(provider: str, prompt: str, image_urls: Optional[list[str]] =
     if provider in ["grok", "grokQuality", "grokPro"]:
         model = {
             "grok": "grok-imagine-image",
-            "grokQuality": "grok-2-image",
+            "grokQuality": "grok-imagine-image-quality",
             "grokPro": "grok-imagine-image",
         }.get(provider, "grok-imagine-image")
 
@@ -399,7 +399,8 @@ def _prepare_zhipu_cloudinary_image_url(source_record: GeneratedImageRecord) -> 
     except Exception as exc:
         raise RuntimeError(
             "上传图片到 Cloudinary 失败，无法生成智谱视频。"
-            "请确认 CLOUDINARY_CLOUD_NAME、CLOUDINARY_API_KEY、CLOUDINARY_API_SECRET 已配置。原始错误："
+            "请确认 Cloudinary API Key 已在模型页面或 Streamlit Secrets 配置，"
+            "并确认 CLOUDINARY_API_SECRET 已在 Streamlit Secrets 配置。原始错误："
             + str(exc)
         )
 

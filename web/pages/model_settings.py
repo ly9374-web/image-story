@@ -1,6 +1,6 @@
 import streamlit as st
 
-from app.config import AppStorageKeys, settings
+from app.config import AppStorageKeys, has_streamlit_secret, settings
 from web.nav import back
 
 
@@ -9,31 +9,43 @@ FIELDS = [
         "输入 Grok 聊天 API Key（会本地持久化保存）",
         AppStorageKeys.XAI_CHAT_API_KEY,
         "GROK_CHAT_API_KEY",
+        "GROK_CHAT_API_KEY",
     ),
     (
         "输入 Grok 生图 API Key（会本地持久化保存）",
         AppStorageKeys.XAI_IMAGE_API_KEY,
+        "GROK_IMAGE_API_KEY",
         "GROK_IMAGE_API_KEY",
     ),
     (
         "输入 Replicate API Token（会本地持久化保存）",
         AppStorageKeys.REPLICATE_API_TOKEN,
         "REPLICATE_API_TOKEN",
+        "REPLICATE_API_TOKEN",
     ),
     (
         "输入 DeepSeek API Key（会本地持久化保存）",
         AppStorageKeys.DEEPSEEK_API_KEY,
+        "DEEPSEEK_API_KEY",
         "DEEPSEEK_API_KEY",
     ),
     (
         "输入 DomoAI API Key（会本地持久化保存）",
         AppStorageKeys.DOMOAI_API_KEY,
         "DOMOAI_API_KEY",
+        "DOMOAI_API_KEY",
     ),
     (
         "输入 智谱 API Key（会本地持久化保存）",
         AppStorageKeys.ZHIPU_API_KEY,
         "ZHIPU_API_KEY",
+        "ZHIPU_API_KEY",
+    ),
+    (
+        "输入 Cloudinary API Key（会本地持久化保存）",
+        AppStorageKeys.CLOUDINARY_API_KEY,
+        "CLOUDINARY_API_KEY",
+        "CLOUDINARY_API_KEY",
     ),
 ]
 
@@ -44,6 +56,17 @@ def _pending_key(storage_key: str) -> str:
 
 def _flash_key(storage_key: str) -> str:
     return f"model_settings_flash_{storage_key}"
+
+
+def _key_status(storage_key: str, secret_name: str) -> str:
+    saved = str(settings.get(storage_key, "") or "").strip()
+    if saved:
+        return "已填入"
+
+    if has_streamlit_secret(secret_name):
+        return "已配置默认 Key"
+
+    return "未填写"
 
 
 def _save_single(storage_key: str):
@@ -75,9 +98,9 @@ def render():
     st.subheader("API Keys")
     st.caption("在输入框里按回车会立即保存该 Key。")
 
-    for label_text, key, placeholder in FIELDS:
+    for label_text, key, placeholder, secret_name in FIELDS:
         st.markdown(f"**{label_text}**")
-        c1, c2 = st.columns([3, 1])
+        c1, c2, c3 = st.columns([3, 1, 1])
         with c1:
             st.text_input(
                 "输入新值（回车保存；留空表示不修改）",
@@ -90,6 +113,8 @@ def render():
                 args=(key,),
             )
         with c2:
+            st.caption(_key_status(key, secret_name))
+        with c3:
             st.button(
                 "删除",
                 use_container_width=True,

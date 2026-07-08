@@ -1,5 +1,4 @@
 import base64
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Optional
 import requests
 
 from app.config import (
+    CloudinaryConfig,
     DomoAIConfig,
     ReplicateConfig,
     XAIConfig,
@@ -576,13 +576,18 @@ class ZhipuVideoClient:
 class CloudinaryUploader:
     @staticmethod
     def _upload_files(files):
-        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
-        api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip()
-        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+        cloud_name = CloudinaryConfig.cloud_name()
+        effective_cloudinary_api_key = CloudinaryConfig.api_key()
+        cloudinary_api_secret = CloudinaryConfig.api_secret()
 
-        if not cloud_name or not api_key or not api_secret:
+        if not effective_cloudinary_api_key:
             raise RuntimeError(
-                "请先设置 CLOUDINARY_CLOUD_NAME、CLOUDINARY_API_KEY、CLOUDINARY_API_SECRET"
+                "缺少 Cloudinary API Key。请在模型页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_KEY。"
+            )
+
+        if not cloudinary_api_secret:
+            raise RuntimeError(
+                "缺少 Cloudinary API Secret。请在 Streamlit Secrets 配置 CLOUDINARY_API_SECRET。"
             )
 
         url = "https://api.cloudinary.com/v1_1/" + cloud_name + "/image/upload"
@@ -590,7 +595,7 @@ class CloudinaryUploader:
         response = requests.post(
             url,
             files=files,
-            auth=(api_key, api_secret),
+            auth=(effective_cloudinary_api_key, cloudinary_api_secret),
             timeout=3600,
         )
 

@@ -62,7 +62,7 @@ class GrokAPIClient:
         system_prompt,
         context_messages,
         user_message,
-        model="grok-4-1-fast-reasoning",
+        model="grok-4.3",
         temperature=0.8,
     ):
         """
@@ -122,7 +122,7 @@ class GrokAPIClient:
 """.strip()
 
         body = {
-            "model": "grok-4-1-fast-reasoning",
+            "model": "grok-4.3",
             "input": [
                 {
                     "role": "system",
@@ -163,7 +163,7 @@ class GrokAPIClient:
         )
 
         body = {
-            "model": "grok-4-1-fast-reasoning",
+            "model": "grok-4.3",
             "input": [
                 {
                     "role": "system",
@@ -196,7 +196,7 @@ class GrokAPIClient:
 """.strip()
 
         body = {
-            "model": "grok-4-1-fast-reasoning",
+            "model": "grok-4.3",
             "input": [
                 {
                     "role": "system",
