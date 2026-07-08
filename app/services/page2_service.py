@@ -158,12 +158,21 @@ def generate_story_brain_update_suggestions(
         story_brain=story_brain,
     )
 
-    raw_text = DeepSeekAPIClient.send_message(
-        system_prompt=STORY_BRAIN_UPDATE_SYSTEM_PROMPT,
-        context_messages=[],
-        user_message=update_prompt,
-        temperature=ctx.temperature,
-    )
+    if ctx.story_brain_update_model == "grok":
+        raw_text = GrokAPIClient.send_message(
+            system_prompt=STORY_BRAIN_UPDATE_SYSTEM_PROMPT,
+            context_messages=[],
+            user_message=update_prompt,
+            model="grok-4-1-fast-reasoning",
+            temperature=ctx.temperature,
+        )
+    else:
+        raw_text = DeepSeekAPIClient.send_message(
+            system_prompt=STORY_BRAIN_UPDATE_SYSTEM_PROMPT,
+            context_messages=[],
+            user_message=update_prompt,
+            temperature=ctx.temperature,
+        )
 
     return _parse_story_brain_suggested_updates(raw_text)
 
@@ -173,6 +182,7 @@ class Page2Context:
     system_prompt: str
     context_turn_count: int
     selected_chat_model: str
+    story_brain_update_model: str
     temperature: float
     selected_video_generation_provider: str
 
@@ -184,6 +194,10 @@ def load_context_from_settings() -> Page2Context:
         context_turn_count=max(0, settings.int(AppStorageKeys.PAGE2_CONTEXT_TURN_COUNT, 8)),
         selected_chat_model=str(
             settings.get(AppStorageKeys.PAGE2_SELECTED_CHAT_MODEL, "grok1") or "grok1"
+        ),
+        story_brain_update_model=str(
+            settings.get(AppStorageKeys.PAGE2_STORY_BRAIN_UPDATE_MODEL, "deepseek")
+            or "deepseek"
         ),
         temperature=float(settings.float(AppStorageKeys.PAGE2_TEMPERATURE, 0.8)),
         selected_video_generation_provider=str(
@@ -197,6 +211,10 @@ def save_context_to_settings(ctx: Page2Context):
     settings.set(AppStorageKeys.SYSTEM_PROMPT, str(ctx.system_prompt or "").strip())
     settings.set(AppStorageKeys.PAGE2_CONTEXT_TURN_COUNT, int(max(0, ctx.context_turn_count)))
     settings.set(AppStorageKeys.PAGE2_SELECTED_CHAT_MODEL, str(ctx.selected_chat_model or "grok1"))
+    settings.set(
+        AppStorageKeys.PAGE2_STORY_BRAIN_UPDATE_MODEL,
+        str(ctx.story_brain_update_model or "deepseek"),
+    )
     settings.set(AppStorageKeys.PAGE2_TEMPERATURE, float(ctx.temperature))
     settings.set(
         AppStorageKeys.PAGE2_SELECTED_VIDEO_GENERATION_PROVIDER,
@@ -226,18 +244,23 @@ def send_message(
     turns: list[Page2ConversationTurn],
     user_message: str,
     story_brain: dict,
+    story_brain_enabled: bool = True,
 ) -> str:
     context_messages = build_context_messages(turns, ctx.context_turn_count)
-    memory_source_text = _story_brain_memory_source_text(
-        _latest_assistant_message(turns),
-        user_message,
-    )
-    system_prompt, user_message_for_model = _inject_story_brain_into_prompt(
-        ctx.system_prompt,
-        user_message,
-        memory_source_text=memory_source_text,
-        story_brain=story_brain,
-    )
+    system_prompt = ctx.system_prompt
+    user_message_for_model = user_message
+
+    if story_brain_enabled:
+        memory_source_text = _story_brain_memory_source_text(
+            _latest_assistant_message(turns),
+            user_message,
+        )
+        system_prompt, user_message_for_model = _inject_story_brain_into_prompt(
+            ctx.system_prompt,
+            user_message,
+            memory_source_text=memory_source_text,
+            story_brain=story_brain,
+        )
 
     if ctx.selected_chat_model == "deepseek":
         return DeepSeekAPIClient.send_message(

@@ -55,6 +55,7 @@ def _ensure_state():
     st.session_state.setdefault("page2_story_brain_graph_edit_event_id", "")
     st.session_state.setdefault("page2_story_brain_graph_fullscreen", False)
     st.session_state.setdefault("page2_story_brain", empty_story_brain())
+    st.session_state.setdefault("page2_story_brain_enabled", True)
 
 
 def _load_record_from_nav_if_needed():
@@ -130,6 +131,7 @@ def _story_brain_lists(story_brain: dict) -> tuple[list, list, list]:
 
 def _save_story_brain_and_refresh(story_brain: dict):
     _save_story_brain_to_current_record(story_brain)
+    st.session_state["page2_story_brain_enabled"] = True
     st.session_state["show_story_brain"] = True
     st.rerun()
 
@@ -228,12 +230,14 @@ def _handle_story_brain_graph_event(story_brain: dict, graph_event: dict):
         action = _story_brain_text(graph_event.get("action"))
         if action == "fullscreen":
             st.session_state["page2_story_brain_graph_fullscreen"] = True
+            st.session_state["page2_story_brain_enabled"] = True
             st.session_state["show_story_brain"] = True
             st.rerun()
         if action != "edit":
             return
         if _apply_story_brain_graph_edit(story_brain, graph_event):
             st.session_state["story_brain_notice"] = "已保存图谱节点修改。"
+            st.session_state["page2_story_brain_enabled"] = True
             st.session_state["show_story_brain"] = True
             st.rerun()
         st.warning("未能保存图谱节点修改，请确认节点仍存在。")
@@ -711,6 +715,13 @@ def _render_sidebar_context():
                 if ctx.selected_chat_model in ["grok1", "grok2", "deepseek"]
                 else 0,
             )
+            story_brain_update_model = st.selectbox(
+                "Story Brain 更新模型",
+                options=["deepseek", "grok"],
+                index=["deepseek", "grok"].index(ctx.story_brain_update_model)
+                if ctx.story_brain_update_model in ["deepseek", "grok"]
+                else 0,
+            )
             temperature = st.slider("temperature", min_value=0.0, max_value=2.0, value=float(ctx.temperature), step=0.05)
             video_provider = st.selectbox(
                 "图生视频",
@@ -727,6 +738,7 @@ def _render_sidebar_context():
                 ctx.system_prompt = system_prompt
             ctx.context_turn_count = int(context_turn_count)
             ctx.selected_chat_model = selected_chat_model
+            ctx.story_brain_update_model = story_brain_update_model
             ctx.temperature = float(temperature)
             ctx.selected_video_generation_provider = video_provider
             page2_service.save_context_to_settings(ctx)
@@ -764,17 +776,21 @@ def _render_chat_column():
     if "show_story_brain" not in st.session_state:
         st.session_state["show_story_brain"] = False
 
+    story_brain_enabled = bool(st.session_state.get("page2_story_brain_enabled", True))
     story_brain_clicked = st.button(
-        "打开 Story Brain",
+        "Story Brain 已打开" if story_brain_enabled else "Story Brain 已关闭",
         key="page2_story_brain_btn",
         use_container_width=True,
     )
     if story_brain_clicked:
-        st.session_state["show_story_brain"] = not bool(st.session_state["show_story_brain"])
-        if not st.session_state["show_story_brain"]:
+        story_brain_enabled = not story_brain_enabled
+        st.session_state["page2_story_brain_enabled"] = story_brain_enabled
+        st.session_state["show_story_brain"] = story_brain_enabled
+        if not story_brain_enabled:
             st.session_state["page2_story_brain_graph_fullscreen"] = False
+            st.session_state["page2_story_brain_memory_pack_json"] = ""
 
-    if st.session_state["show_story_brain"]:
+    if story_brain_enabled:
         st.subheader("Story Brain")
         story_brain = _current_story_brain()
         _render_story_brain_graph(story_brain)
@@ -790,10 +806,11 @@ def _render_chat_column():
 
     if not user_text:
         memory_pack_json = str(st.session_state.get("page2_story_brain_memory_pack_json", "") or "")
-        if memory_pack_json:
+        if story_brain_enabled and memory_pack_json:
             with st.expander("本轮将代入模型的 Story Brain Memory Pack"):
                 st.code(memory_pack_json, language="json")
-        _render_story_brain_update_suggestions()
+        if story_brain_enabled:
+            _render_story_brain_update_suggestions()
         return
 
     current_text = str(user_text).strip()
@@ -803,14 +820,17 @@ def _render_chat_column():
         part for part in [previous_assistant_text.strip(), current_text] if part
     )
     story_brain = _current_story_brain()
-    memory_pack = build_memory_pack(
-        current_text=memory_source_text,
-        story_brain=story_brain,
-    )
-    memory_pack_json = memory_pack_to_json(memory_pack, max_chars=1500)
-    st.session_state["page2_story_brain_memory_pack_json"] = memory_pack_json
-    with st.expander("本轮将代入模型的 Story Brain Memory Pack"):
-        st.code(memory_pack_json, language="json")
+    if story_brain_enabled:
+        memory_pack = build_memory_pack(
+            current_text=memory_source_text,
+            story_brain=story_brain,
+        )
+        memory_pack_json = memory_pack_to_json(memory_pack, max_chars=1500)
+        st.session_state["page2_story_brain_memory_pack_json"] = memory_pack_json
+        with st.expander("本轮将代入模型的 Story Brain Memory Pack"):
+            st.code(memory_pack_json, language="json")
+    else:
+        st.session_state["page2_story_brain_memory_pack_json"] = ""
 
     ctx = page2_service.load_context_from_settings()
 
@@ -829,6 +849,7 @@ def _render_chat_column():
                 turns=st.session_state.page2_turns,
                 user_message=new_turn.user_message,
                 story_brain=story_brain,
+                story_brain_enabled=story_brain_enabled,
             )
         except Exception as exc:
             reply = "请求失败，请稍后重试。\n" + str(exc)
@@ -839,7 +860,7 @@ def _render_chat_column():
     last.is_loading = False
     _upsert_record()
 
-    if not reply.startswith("请求失败"):
+    if story_brain_enabled and not reply.startswith("请求失败"):
         with st.spinner("正在分析 Story Brain 更新建议..."):
             try:
                 suggested_updates = page2_service.generate_story_brain_update_suggestions(

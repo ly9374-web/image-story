@@ -28,6 +28,7 @@ class AppStorageKeys:
     SYSTEM_PROMPT = "systemPrompt"
     PAGE2_CONTEXT_TURN_COUNT = "page2ContextTurnCount"
     PAGE2_SELECTED_CHAT_MODEL = "page2SelectedChatModel"
+    PAGE2_STORY_BRAIN_UPDATE_MODEL = "page2StoryBrainUpdateModel"
     PAGE2_TEMPERATURE = "page2Temperature"
     PAGE2_SELECTED_VIDEO_GENERATION_PROVIDER = "page2SelectedVideoGenerationProvider"
 
