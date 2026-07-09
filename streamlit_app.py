@@ -5,7 +5,7 @@ from app.ui.theme import apply_dark_mode
 from web.nav import back, goto, nav_init, nav_state
 from web.pages.home import render as render_home
 from web.pages.model_settings import render as render_model_settings
-from web.pages.page2 import render as render_page2
+from web.pages.page2 import render as render_page2, render_sidebar_context as render_page2_sidebar_context
 from web.pages.records import render as render_records
 from web.pages.settings import render as render_settings
 from web.pages.signin_page import render as render_signin
@@ -17,7 +17,7 @@ PAGES = {
     "main": ("开始", render_page2),
     "settings": ("设置", render_settings),
     "records": ("记录", render_records),
-    "modelSettings": ("模型", render_model_settings),
+    "modelSettings": ("APIkey", render_model_settings),
 }
 
 _GUEST_COUNTDOWN_CSS = """
@@ -70,32 +70,27 @@ def _render_guest_countdown():
 
 
 def _render_sidebar():
-    st.sidebar.header("图像小说 Python")
+    st.sidebar.header("图像小说")
 
     current = nav_state().page
-    mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
-    options = [key for key in PAGES.keys() if key != "signin"]
-    if mode == "guest" and "modelSettings" in options:
-        options = [k for k in options if k != "modelSettings"]
-    labels = {key: PAGES[key][0] for key in options}
+    can_go_back = current == "home" or bool(nav_state().history)
+    if st.sidebar.button("返回", use_container_width=True, disabled=not can_go_back):
+        if current == "home":
+            st.session_state.auth_ok = False
+            st.session_state.auth_mode = ""
+            st.session_state.user_id = ""
+            st.session_state.pop("guest_expires_at", None)
+            st.session_state.nav_history = []
+            goto("signin", push_history=False)
+        else:
+            back()
 
-    selected = st.sidebar.radio(
-        "导航",
-        options=options,
-        format_func=lambda k: labels.get(k, k),
-        index=options.index(current) if current in options else 0,
-    )
-    if selected != current:
-        goto(selected)
-
-    st.sidebar.divider()
-
-    if st.sidebar.button("返回", use_container_width=True, disabled=not nav_state().history):
-        back()
+    if current == "main":
+        render_page2_sidebar_context()
 
 
 def main():
-    st.set_page_config(page_title="图像小说 Python", layout="wide")
+    st.set_page_config(page_title="图像小说", layout="wide")
     apply_dark_mode()
     nav_init(default_page="signin")
 
@@ -121,7 +116,7 @@ def main():
         _render_guest_countdown()
 
     if nav_state().page == "modelSettings" and str(st.session_state.auth_mode or "").strip().lower() == "guest":
-        st.warning("游客模式无法访问「模型」。")
+        st.warning("游客模式无法访问「APIkey」。")
         goto("home", push_history=False)
 
     if nav_state().page != "signin":

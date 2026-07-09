@@ -672,10 +672,12 @@ def _render_story_brain_editors(story_brain: dict):
     _render_story_brain_event_editor(story_brain)
 
 
-def _render_sidebar_context():
+def render_sidebar_context():
+    _ensure_state()
+    _load_record_from_nav_if_needed()
+
     with st.sidebar:
-        st.subheader("会话")
-        if st.button("新建会话", use_container_width=True):
+        if st.button("新建对话", use_container_width=True):
             st.session_state.page2_record_id = ""
             st.session_state.page2_loaded_record_id = ""
             st.session_state.page2_turns = []
@@ -685,8 +687,9 @@ def _render_sidebar_context():
             _clear_story_brain_update_suggestions()
             goto("main", push_history=False)
 
-        if st.session_state.page2_record_id:
-            st.caption("记录 ID: " + st.session_state.page2_record_id)
+        record_id = str(st.session_state.get("page2_record_id", "") or "")
+        if record_id:
+            st.caption("记录 ID: " + record_id)
 
         st.divider()
         st.subheader("上下文设置")
@@ -706,7 +709,7 @@ def _render_sidebar_context():
                     break
             page2_service.save_context_to_settings(ctx)
 
-        with st.form("page2_context_form", border=True):
+        with st.container(border=True):
             if _chat_scope() == "guest":
                 st.text_area("system prompt（游客仅可选择）", value=ctx.system_prompt, height=180, disabled=True)
                 system_prompt = ctx.system_prompt
@@ -736,20 +739,16 @@ def _render_sidebar_context():
                 else 0,
             )
 
-            saved = st.form_submit_button("保存", use_container_width=True, type="primary")
-
-        if saved:
-            if _chat_scope() != "guest":
-                ctx.system_prompt = system_prompt
-            ctx.context_turn_count = int(context_turn_count)
-            ctx.selected_chat_model = selected_chat_model
-            ctx.story_brain_update_model = story_brain_update_model
-            ctx.temperature = float(temperature)
-            ctx.selected_video_generation_provider = video_provider
-            page2_service.save_context_to_settings(ctx)
-            st.success("已保存")
+        if _chat_scope() != "guest":
+            ctx.system_prompt = system_prompt
+        ctx.context_turn_count = int(context_turn_count)
+        ctx.selected_chat_model = selected_chat_model
+        ctx.story_brain_update_model = story_brain_update_model
+        ctx.temperature = float(temperature)
+        ctx.selected_video_generation_provider = video_provider
+        page2_service.save_context_to_settings(ctx)
+        if str(st.session_state.get("page2_record_id", "") or "") or st.session_state.page2_turns:
             _upsert_record()
-            st.rerun()
 
 
 def _render_chat_column():
@@ -783,7 +782,7 @@ def _render_chat_column():
 
     story_brain_enabled = bool(st.session_state.get("page2_story_brain_enabled", True))
     story_brain_clicked = st.button(
-        "Story Brain 已打开" if story_brain_enabled else "Story Brain 已关闭",
+        "点击关闭story brain" if story_brain_enabled else "点击开启story brain",
         key="page2_story_brain_btn",
         use_container_width=True,
     )
@@ -963,7 +962,7 @@ def _render_media_column():
 
     latest = _latest_assistant_message(st.session_state.page2_turns)
     if not latest:
-        st.caption("先在左侧生成一条助手回复，然后可以从最近回复生成图片 prompt。")
+        st.caption("先在左侧生成一条助手回复，然后可以点击“生成图片prompt”。")
 
     mode = st.selectbox(
         "prompt 模式",
@@ -976,16 +975,16 @@ def _render_media_column():
         subject = st.text_input("主体", value=st.session_state.page2_image_prompt_subject)
         st.session_state.page2_image_prompt_subject = subject
 
-    if st.button("从最近助手回复生成图片 prompt", use_container_width=True, disabled=not latest):
-        with st.spinner("正在生成图片 prompt..."):
+    if st.button("生成图片prompt", use_container_width=True, disabled=not latest):
+        with st.spinner("正在生成图片prompt..."):
             try:
                 prompt = page2_service.generate_image_prompt(latest, mode=mode, subject=subject)
                 st.session_state.page2_image_prompt = prompt
-                st.success("图片 prompt 已生成")
+                st.success("图片prompt已生成")
             except Exception as exc:
                 _show_error(exc)
 
-    prompt_text = st.text_area("图片 prompt（可编辑）", value=st.session_state.page2_image_prompt, height=160)
+    prompt_text = st.text_area("图片prompt（可编辑）", value=st.session_state.page2_image_prompt, height=160)
     st.session_state.page2_image_prompt = prompt_text
 
     provider = st.selectbox(
@@ -1136,8 +1135,6 @@ section[data-testid="stMain"] .block-container {
         """,
         unsafe_allow_html=True,
     )
-
-    _render_sidebar_context()
 
     left, right = st.columns([1, 1])
     with left:

@@ -19,5 +19,5 @@ def render():
         if st.button("记录", use_container_width=True):
             goto("records")
         if mode != "guest":
-            if st.button("模型", use_container_width=True):
+            if st.button("APIkey", use_container_width=True):
                 goto("modelSettings")

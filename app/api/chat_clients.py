@@ -48,9 +48,9 @@ class GrokAPIClient:
 
     功能：
     1. 普通聊天 send_message()
-    2. 生成图片 prompt generate_image_prompt()
-    3. 第一人称图片 prompt generate_first_person_image_prompt()
-    4. 人物特写图片 prompt generate_character_closeup_image_prompt()
+    2. 生成图片prompt generate_image_prompt()
+    3. 第一人称图片prompt generate_first_person_image_prompt()
+    4. 人物特写图片prompt generate_character_closeup_image_prompt()
     5. 解析 Grok Responses API 返回
     """
 
@@ -217,7 +217,7 @@ class GrokAPIClient:
         effective_grok_chat_api_key = XAIConfig.chat_api_key()
         if not effective_grok_chat_api_key:
             raise RuntimeError(
-                "缺少 Grok 聊天 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 GROK_CHAT_API_KEY。"
+                "缺少 Grok 聊天 API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 GROK_CHAT_API_KEY。"
             )
 
         headers = {
@@ -429,7 +429,7 @@ class DeepSeekAPIClient:
         effective_deepseek_api_key = DeepSeekConfig.api_key()
         if not effective_deepseek_api_key:
             raise RuntimeError(
-                "缺少 DeepSeek API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DEEPSEEK_API_KEY。"
+                "缺少 DeepSeek API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 DEEPSEEK_API_KEY。"
             )
 
         headers = {

@@ -8,7 +8,7 @@ import streamlit as st
 # App 基础配置
 # =========================
 
-APP_TITLE = "图像小说 Python"
+APP_TITLE = "图像小说"
 
 # 数据保存目录
 # Python 版没有 Swift 的 UserDefaults，所以我们用 json 文件模拟本地存储

@@ -102,7 +102,7 @@ def _delete_single(storage_key: str):
 
 
 def render():
-    st.title("模型")
+    st.title("APIkey")
 
     st.caption("已保存的 Key 不会在 UI 中显示；如需更新请重新输入，或点击删除清空。")
 

@@ -111,7 +111,7 @@ class GrokImageAPIClient:
         effective_grok_image_api_key = XAIConfig.image_api_key()
         if not effective_grok_image_api_key:
             raise RuntimeError(
-                "缺少 Grok 生图 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 GROK_IMAGE_API_KEY。"
+                "缺少 Grok 生图 API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 GROK_IMAGE_API_KEY。"
             )
 
         headers = {
@@ -197,7 +197,7 @@ class ReplicateImageAPIClient:
         effective_replicate_api_token = ReplicateConfig.api_token()
         if not effective_replicate_api_token:
             raise RuntimeError(
-                "缺少 Replicate API Token。请在模型页面填写，或在 Streamlit Secrets 配置 REPLICATE_API_TOKEN。"
+                "缺少 Replicate API Token。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 REPLICATE_API_TOKEN。"
             )
 
         headers = {
@@ -316,7 +316,7 @@ class DomoAIClient:
         effective_domoai_api_key = DomoAIConfig.api_key()
         if not effective_domoai_api_key:
             raise RuntimeError(
-                "缺少 DomoAI API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
+                "缺少 DomoAI API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
             )
 
         headers = {
@@ -381,7 +381,7 @@ class DomoAIClient:
         effective_domoai_api_key = DomoAIConfig.api_key()
         if not effective_domoai_api_key:
             raise RuntimeError(
-                "缺少 DomoAI API Key。请在模型页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
+                "缺少 DomoAI API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 DOMOAI_API_KEY。"
             )
 
         headers = {
@@ -476,7 +476,7 @@ class ZhipuVideoClient:
         effective_zhipu_api_key = ZhipuConfig.api_key()
         if not effective_zhipu_api_key:
             raise RuntimeError(
-                "缺少智谱 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
+                "缺少智谱 API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
             )
 
         headers = {
@@ -533,7 +533,7 @@ class ZhipuVideoClient:
         effective_zhipu_api_key = ZhipuConfig.api_key()
         if not effective_zhipu_api_key:
             raise RuntimeError(
-                "缺少智谱 API Key。请在模型页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
+                "缺少智谱 API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 ZHIPU_API_KEY。"
             )
 
         headers = {
@@ -582,12 +582,12 @@ class CloudinaryUploader:
 
         if not effective_cloudinary_api_key:
             raise RuntimeError(
-                "缺少 Cloudinary API Key。请在模型页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_KEY。"
+                "缺少 Cloudinary API Key。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_KEY。"
             )
 
         if not cloudinary_api_secret:
             raise RuntimeError(
-                "缺少 Cloudinary API Secret。请在模型页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_SECRET。"
+                "缺少 Cloudinary API Secret。请在 APIkey 页面填写，或在 Streamlit Secrets 配置 CLOUDINARY_API_SECRET。"
             )
 
         url = "https://api.cloudinary.com/v1_1/" + cloud_name + "/image/upload"

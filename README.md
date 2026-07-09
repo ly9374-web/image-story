@@ -6,7 +6,7 @@
 streamlit run streamlit_app.py
 ```
 
-你需要把自己的 API Key 填到“模型”页面，或者在 Streamlit Cloud 的 App settings / Secrets 中配置：
+你需要把自己的 API Key 填到“APIkey”页面，或者在 Streamlit Cloud 的 App settings / Secrets 中配置：
 - GROK_CHAT_API_KEY
 - GROK_IMAGE_API_KEY
 - REPLICATE_API_TOKEN
@@ -16,7 +16,7 @@ streamlit run streamlit_app.py
 - CLOUDINARY_API_KEY
 - CLOUDINARY_API_SECRET
 
-API Key 读取优先级：模型页面用户填写并保存的值 > Streamlit Secrets > 空值并提示缺少对应 API Key。
+API Key 读取优先级：APIkey 页面用户填写并保存的值 > Streamlit Secrets > 空值并提示缺少对应 API Key。
 Cloudinary 的 cloud name 默认使用 `dxi0op4os`。
 
 说明：
@@ -38,7 +38,7 @@ Cloudinary 的 cloud name 默认使用 `dxi0op4os`。
 | 开始 | `main` | `web.pages.page2.render` |
 | 设置 | `settings` | `web.pages.settings.render` |
 | 记录 | `records` | `web.pages.records.render` |
-| 模型 | `modelSettings` | `web.pages.model_settings.render` |
+| APIkey | `modelSettings` | `web.pages.model_settings.render` |
 
 `streamlit_app.py` 顶层组件：
 
@@ -133,7 +133,7 @@ Page2 主要 UI 区块：
 - 伏笔 trigger 规则：`type` 为 `伏笔` 的事件必须有非空 `trigger`，每轮进入 Memory Pack；trigger 未发生时禁止触发，触发后由 DeepSeek 输出 `delete` 自动删除。
 - 角色状态规则：`character.status` 记录身体状态、伤势和当前姿势；不记录心理状态、情绪、服装设定或身份背景。
 - 媒体记录区：图片/视频记录选择、预览、prompt 查看、URL 复制、删除当前记录。
-- 生成图片区：prompt 模式、主体、从最近助手回复生成图片 prompt、图片 prompt 编辑、图片 provider、参考图片 URL、生成图片。
+- 生成图片区：prompt 模式、主体、生成图片prompt、图片prompt编辑、图片 provider、参考图片 URL、生成图片。
 - 图生视频区：选择输入图片、视频 prompt、时长、生成视频。
 - URL 收藏区：新增 URL 或输入口令解锁隐藏空间、Cloudinary 上传图片获取 URL、收藏列表、删除选中 URL。
 
@@ -144,9 +144,9 @@ Page2 会话状态 keys：
 - 对话轮次：`page2_turns`
 - 已生成媒体：`page2_generated_media`
 - 当前选中媒体 ID：`page2_selected_media_id`
-- 图片 prompt：`page2_image_prompt`
-- 图片 prompt 模式：`page2_image_prompt_mode`
-- 图片 prompt 主体：`page2_image_prompt_subject`
+- 图片prompt：`page2_image_prompt`
+- 图片prompt模式：`page2_image_prompt_mode`
+- 图片prompt主体：`page2_image_prompt_subject`
 - URL 隐藏空间状态：`page2_url_hidden_space`
 - Story Brain 更新建议：`page2_story_brain_suggested_updates`
 - Story Brain 更新错误：`page2_story_brain_update_error`
@@ -198,11 +198,11 @@ Page2 Story Brain 图谱配置，见 `graph_view.py`：
 - 重命名输入框：`records_rename_title`
 - 记录页隐藏空间状态：`records_hidden_space`
 
-### 模型页组件
+### APIkey 页组件
 
 见 `web/pages/model_settings.py`：
 
-- 模型页渲染：`render`
+- APIkey 页渲染：`render`
 - 待保存 key 生成：`_pending_key`
 - 提示 key 生成：`_flash_key`
 - 保存单个配置：`_save_single`
@@ -312,7 +312,7 @@ Page2 Story Brain 图谱配置，见 `graph_view.py`：
 - 保存上下文到设置：`save_context_to_settings`
 - 构建上下文消息：`build_context_messages`
 - 发送聊天消息：`send_message`
-- 生成图片 prompt：`generate_image_prompt`
+- 生成图片prompt：`generate_image_prompt`
 - 生成图片：`generate_image`
 - 图生视频：`generate_video_from_image`
 - 确保记录 ID：`ensure_record_id`
