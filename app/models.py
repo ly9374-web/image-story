@@ -59,6 +59,58 @@ class SystemPromptRecord:
 
 
 @dataclass
+class AgentPromptRecord:
+    title: str
+    npc1_name: str = "NPC1"
+    npc2_name: str = "NPC2"
+    npc3_name: str = "NPC3"
+    npc1_prompt: str = ""
+    npc2_prompt: str = ""
+    npc3_prompt: str = ""
+    player_parser_prompt: str = ""
+    action_scheduler_prompt: str = ""
+    scene_descriptor_prompt: str = ""
+    id: str = field(default_factory=new_id)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+    @staticmethod
+    def from_dict(data):
+        return AgentPromptRecord(
+            id=data.get("id") or new_id(),
+            title=data.get("title", "未命名 Agent 记录"),
+            npc1_name=data.get("npc1_name") or data.get("npc1Name") or "NPC1",
+            npc2_name=data.get("npc2_name") or data.get("npc2Name") or "NPC2",
+            npc3_name=data.get("npc3_name") or data.get("npc3Name") or "NPC3",
+            npc1_prompt=data.get("npc1_prompt") or data.get("npc1Prompt") or "",
+            npc2_prompt=data.get("npc2_prompt") or data.get("npc2Prompt") or "",
+            npc3_prompt=data.get("npc3_prompt") or data.get("npc3Prompt") or "",
+            player_parser_prompt=data.get("player_parser_prompt") or data.get("playerParserPrompt") or "",
+            action_scheduler_prompt=data.get("action_scheduler_prompt") or data.get("actionSchedulerPrompt") or "",
+            scene_descriptor_prompt=data.get("scene_descriptor_prompt") or data.get("sceneDescriptorPrompt") or "",
+            created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
+            updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
+        )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "npc1_name": self.npc1_name,
+            "npc2_name": self.npc2_name,
+            "npc3_name": self.npc3_name,
+            "npc1_prompt": self.npc1_prompt,
+            "npc2_prompt": self.npc2_prompt,
+            "npc3_prompt": self.npc3_prompt,
+            "player_parser_prompt": self.player_parser_prompt,
+            "action_scheduler_prompt": self.action_scheduler_prompt,
+            "scene_descriptor_prompt": self.scene_descriptor_prompt,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
 class Page2ConversationTurn:
     user_message: str = ""
     assistant_message: str = None

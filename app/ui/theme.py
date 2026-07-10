@@ -293,7 +293,404 @@ div[data-testid="stVerticalBlock"].st-key-page2_chat_canvas,
 .st-key-page2_chat_undo_btn button > div > p {
   margin: 0 !important;
 }
+
+/* ===== Agent chat canvas ===== */
+div[data-testid="stVerticalBlock"].st-key-agent_chat_canvas,
+.st-key-agent_chat_canvas {
+  --agent-chat-btn: 44px;
+  --agent-controls-pad-right: 18px;
+  height: calc(100dvh - 132px) !important;
+  max-height: calc(100dvh - 132px) !important;
+  min-height: calc(100dvh - 132px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative !important;
+  border-radius: 24px !important;
+  padding: 14px !important;
+  background: rgba(7, 16, 24, 0.58) !important;
+  border: 1px solid rgba(96, 165, 250, 0.14) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 42px rgba(0, 0, 0, 0.50) !important;
+  overflow: auto !important;
+  overscroll-behavior: contain !important;
+}
+
+.st-key-agent_chat_history {
+  flex: 1 1 auto !important;
+  overflow: visible !important;
+  padding-right: 6px !important;
+  padding-bottom: calc(var(--agent-chat-btn) + 28px) !important;
+}
+
+.st-key-agent_chat_canvas::-webkit-scrollbar {
+  width: 10px;
+}
+.st-key-agent_chat_canvas::-webkit-scrollbar-thumb {
+  background: rgba(96, 165, 250, 0.18);
+  border-radius: 999px;
+  border: 2px solid rgba(0, 0, 0, 0);
+  background-clip: padding-box;
+}
+.st-key-agent_chat_input {
+  flex: 0 0 auto !important;
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 5 !important;
+}
+.st-key-agent_chat_input div[data-testid="stChatInput"] {
+  border-radius: 18px !important;
+  background: rgba(10, 21, 32, 0.80) !important;
+  border: 1px solid rgba(96, 165, 250, 0.16) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.48) !important;
+}
+.st-key-agent_chat_input div[data-testid="stChatInput"] textarea,
+.st-key-agent_chat_input div[data-testid="stChatInput"] [contenteditable="true"] {
+  padding-right: calc(var(--agent-chat-btn) + var(--agent-controls-pad-right)) !important;
+}
+.st-key-agent_chat_canvas [data-testid="stChatInputSubmitButton"] {
+  width: var(--agent-chat-btn) !important;
+  height: var(--agent-chat-btn) !important;
+  min-width: var(--agent-chat-btn) !important;
+  border-radius: 14px !important;
+}
+
+.agent-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.agent-event-player {
+  flex-direction: row-reverse;
+}
+
+.agent-event-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 999px;
+  margin-top: 2px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 8px 18px rgba(0, 0, 0, 0.55);
+}
+
+.agent-event-bubble {
+  max-width: min(78%, 760px);
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(10, 14, 20, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.agent-event-player .agent-event-bubble {
+  box-shadow:
+    0 0 0 1px rgba(139, 92, 246, 0.18),
+    0 0 26px rgba(76, 29, 149, 0.35),
+    0 12px 30px rgba(0, 0, 0, 0.55);
+}
+
+.agent-event-label {
+  margin-bottom: 8px;
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.agent-event-content {
+  color: #e5e7eb;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.agent-event-player .agent-event-avatar {
+  background: linear-gradient(135deg, #a855f7 0%, #0b0f14 85%);
+}
+
+.agent-event-npc1 .agent-event-avatar,
+.agent-event-assistant .agent-event-avatar {
+  background: linear-gradient(135deg, #ff4fd8 0%, #25b9ff 100%);
+}
+
+.agent-event-npc2 .agent-event-avatar {
+  background: linear-gradient(135deg, #22c55e 0%, #14b8a6 100%);
+}
+
+.agent-event-npc3 .agent-event-avatar {
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+}
+
+.agent-event-scene .agent-event-avatar {
+  background: linear-gradient(135deg, #94a3b8 0%, #334155 100%);
+}
+
+.agent-event-judgement .agent-event-avatar {
+  background: linear-gradient(135deg, #818cf8 0%, #4f46e5 100%);
+}
+
+.agent-event-error .agent-event-avatar,
+.agent-event-system .agent-event-avatar {
+  background: linear-gradient(135deg, #f87171 0%, #991b1b 100%);
+}
 </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def apply_agent_mode_style(enabled: bool) -> None:
+    if not enabled:
+        return
+
+    st.markdown(
+        """
+<style>
+/* ===== Agent mode shell ===== */
+:root {
+  --agent-bg-0: #071015;
+  --agent-bg-1: #081823;
+  --agent-bg-2: #0d2030;
+  --agent-panel: rgba(10, 21, 29, 0.86);
+  --agent-surface: rgba(17, 32, 42, 0.78);
+  --agent-surface-strong: rgba(12, 48, 78, 0.70);
+  --agent-border: rgba(125, 184, 255, 0.18);
+  --agent-accent: #38a3ff;
+  --agent-accent-2: #7dd3fc;
+  --agent-accent-soft: rgba(56, 163, 255, 0.18);
+  --agent-text: #edf7ff;
+  --agent-muted: rgba(237, 247, 255, 0.68);
+}
+
+html,
+body,
+.stApp,
+section[data-testid="stMain"] {
+  background:
+    radial-gradient(circle at 22% 8%, rgba(14, 116, 144, 0.20), transparent 34%),
+    radial-gradient(circle at 84% 24%, rgba(37, 99, 235, 0.18), transparent 32%),
+    linear-gradient(145deg, var(--agent-bg-0) 0%, var(--agent-bg-1) 48%, var(--agent-bg-2) 100%) !important;
+  color: var(--agent-text) !important;
+  transition:
+    background 420ms ease,
+    color 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease !important;
+}
+
+[data-testid="stSidebar"] > div {
+  background:
+    linear-gradient(180deg, rgba(9, 22, 31, 0.97), rgba(6, 14, 19, 0.99)) !important;
+  border-right: 1px solid var(--agent-border) !important;
+  transition: background 420ms ease, border-color 240ms ease !important;
+}
+
+[data-testid="stSidebar"] * {
+  color: var(--agent-text) !important;
+}
+
+.stButton > button:not([kind="primary"]) {
+  background: var(--agent-surface) !important;
+  border-color: var(--agent-border) !important;
+  color: var(--agent-text) !important;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease !important;
+}
+
+.stButton > button:not([kind="primary"]):hover {
+  border-color: rgba(125, 211, 252, 0.48) !important;
+  box-shadow: 0 0 24px rgba(56, 163, 255, 0.22) !important;
+}
+
+.stButton > button[kind="primary"],
+.st-key-agent_chat_canvas [data-testid="stChatInputSubmitButton"] {
+  background: linear-gradient(180deg, #1d9bff 0%, #0b72d0 100%) !important;
+  border-color: rgba(125, 211, 252, 0.58) !important;
+  color: #f7fbff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    0 12px 28px rgba(14, 116, 220, 0.30) !important;
+}
+
+.stButton > button[kind="primary"]:hover,
+.st-key-agent_chat_canvas [data-testid="stChatInputSubmitButton"]:hover {
+  background: linear-gradient(180deg, #38a3ff 0%, #0b86eb 100%) !important;
+  border-color: rgba(186, 230, 253, 0.78) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 0 28px rgba(56, 163, 255, 0.34) !important;
+}
+
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div,
+.stNumberInput input {
+  background: var(--agent-panel) !important;
+  border-color: var(--agent-border) !important;
+  color: var(--agent-text) !important;
+}
+
+.stSlider [data-baseweb="slider"] > div {
+  background-color: rgba(125, 184, 255, 0.20) !important;
+}
+
+.stSlider [role="slider"] {
+  background: var(--agent-accent) !important;
+  box-shadow: 0 0 18px rgba(56, 163, 255, 0.30) !important;
+}
+
+.stSelectbox div[data-baseweb="popover"],
+.stMultiSelect div[data-baseweb="popover"] {
+  background: var(--agent-panel) !important;
+  border: 1px solid var(--agent-border) !important;
+}
+
+.stSelectbox [role="option"],
+.stMultiSelect [role="option"] {
+  color: var(--agent-text) !important;
+}
+
+.stSelectbox [role="option"]:hover,
+.stMultiSelect [role="option"]:hover {
+  background: var(--agent-accent-soft) !important;
+}
+
+.stCaption,
+[data-testid="stCaptionContainer"] {
+  color: var(--agent-muted) !important;
+}
+
+a,
+a:visited,
+[data-testid="stMarkdownContainer"] a {
+  color: var(--agent-accent-2) !important;
+}
+
+[data-testid="stDivider"] hr,
+hr {
+  border-color: rgba(125, 184, 255, 0.15) !important;
+}
+
+[data-testid="stAlert"],
+[data-testid="stExpander"],
+details {
+  background: var(--agent-panel) !important;
+  border-color: var(--agent-border) !important;
+  color: var(--agent-text) !important;
+}
+
+div[data-testid="stChatMessage"] {
+  background: rgba(8, 18, 25, 0.72) !important;
+  border-color: rgba(125, 184, 255, 0.14) !important;
+}
+
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  box-shadow:
+    0 0 0 1px rgba(56, 163, 255, 0.18),
+    0 0 26px rgba(37, 99, 235, 0.26),
+    0 12px 30px rgba(0, 0, 0, 0.55) !important;
+}
+
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+  box-shadow:
+    0 0 0 1px rgba(125, 211, 252, 0.16),
+    0 0 26px rgba(56, 163, 255, 0.20),
+    0 12px 30px rgba(0, 0, 0, 0.55) !important;
+}
+
+[data-testid="stChatMessageAvatarUser"] {
+  background: linear-gradient(135deg, #38a3ff 0%, #071015 88%) !important;
+}
+
+[data-testid="stChatMessageAvatarAssistant"] {
+  background: linear-gradient(135deg, #7dd3fc 0%, #2563eb 100%) !important;
+}
+
+.st-key-agent_chat_canvas {
+  background: rgba(7, 16, 22, 0.62) !important;
+  border-color: rgba(125, 184, 255, 0.16) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 42px rgba(0, 0, 0, 0.50),
+    0 0 36px rgba(37, 99, 235, 0.08) !important;
+}
+
+.st-key-agent_chat_canvas::-webkit-scrollbar-thumb {
+  background: rgba(125, 184, 255, 0.20);
+}
+
+.st-key-agent_chat_canvas::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 184, 255, 0.30);
+}
+
+.st-key-agent_chat_input div[data-testid="stChatInput"] {
+  background: var(--agent-panel) !important;
+  border-color: rgba(125, 184, 255, 0.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.48) !important;
+}
+
+.st-key-agent_chat_input div[data-testid="stChatInput"]:focus-within {
+  border-color: rgba(125, 211, 252, 0.58) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 28px rgba(56, 163, 255, 0.20),
+    0 10px 24px rgba(0, 0, 0, 0.48) !important;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def apply_agent_transition_animation(token: str) -> None:
+    token = str(token or "").strip()
+    if not token:
+        return
+
+    st.markdown(
+        f"""
+<style>
+@keyframes agent-blue-wash-{token} {{
+  0% {{
+    opacity: 0;
+    backdrop-filter: saturate(1.0);
+  }}
+  18% {{
+    opacity: 0.86;
+    backdrop-filter: saturate(1.35);
+  }}
+  62% {{
+    opacity: 0.58;
+    backdrop-filter: saturate(1.22);
+  }}
+  100% {{
+    opacity: 0;
+    backdrop-filter: saturate(1.0);
+  }}
+}}
+
+.agent-transition-overlay-{token} {{
+  position: fixed;
+  inset: 0;
+  z-index: 1000002;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(56, 189, 248, 0.95), transparent 34%),
+    radial-gradient(circle at 72% 18%, rgba(37, 99, 235, 0.78), transparent 38%),
+    radial-gradient(circle at 50% 76%, rgba(14, 165, 233, 0.58), transparent 42%),
+    linear-gradient(135deg, rgba(5, 14, 28, 0.90), rgba(8, 47, 73, 0.88));
+  animation: agent-blue-wash-{token} 0.8s ease-in-out forwards;
+}}
+</style>
+<div class="agent-transition-overlay-{token}"></div>
         """,
         unsafe_allow_html=True,
     )

@@ -1,8 +1,11 @@
-import streamlit as st
 import time
 
-from app.ui.theme import apply_dark_mode
+import streamlit as st
+
+from app.ui.theme import apply_agent_mode_style, apply_agent_transition_animation, apply_dark_mode
 from web.nav import back, goto, nav_init, nav_state
+from web.pages.agent_chat import render as render_agent_chat, render_sidebar_context as render_agent_sidebar_context
+from web.pages.agent_settings import render as render_agent_settings
 from web.pages.home import render as render_home
 from web.pages.model_settings import render as render_model_settings
 from web.pages.page2 import render as render_page2, render_sidebar_context as render_page2_sidebar_context
@@ -16,6 +19,8 @@ PAGES = {
     "home": ("首页", render_home),
     "main": ("开始", render_page2),
     "settings": ("设置", render_settings),
+    "agentMain": ("Agent", render_agent_chat),
+    "agentSettings": ("Agent Prompt", render_agent_settings),
     "records": ("记录", render_records),
     "modelSettings": ("APIkey", render_model_settings),
 }
@@ -70,9 +75,9 @@ def _render_guest_countdown():
 
 
 def _render_sidebar():
-    st.sidebar.header("图像小说")
-
     current = nav_state().page
+    agent_mode = bool(st.session_state.get("agent_mode", False))
+    st.sidebar.header("图像小说 · Agent" if agent_mode else "图像小说")
     can_go_back = current == "home" or bool(nav_state().history)
     if st.sidebar.button("返回", use_container_width=True, disabled=not can_go_back):
         if current == "home":
@@ -85,14 +90,42 @@ def _render_sidebar():
         else:
             back()
 
+    agent_label = "退出 agent" if agent_mode else "agent"
+    if st.sidebar.button(agent_label, use_container_width=True, type="primary" if agent_mode else "secondary"):
+        st.session_state.agent_transition_token = str(int(time.time() * 1000))
+        if agent_mode:
+            previous = st.session_state.get("agent_previous_page")
+            previous_kwargs = dict(st.session_state.get("agent_previous_page_kwargs") or {})
+            st.session_state.agent_mode = False
+            st.session_state.pop("agent_previous_page", None)
+            st.session_state.pop("agent_previous_page_kwargs", None)
+            if current in {"agentMain", "agentSettings"}:
+                if isinstance(previous, str) and previous:
+                    goto(
+                        previous,
+                        push_history=False,
+                        **previous_kwargs,
+                    )
+                else:
+                    goto("home", push_history=False)
+            st.rerun()
+        else:
+            st.session_state.agent_previous_page = current
+            st.session_state.agent_previous_page_kwargs = dict(st.session_state.get("nav_page_kwargs") or {})
+            st.session_state.agent_mode = True
+            goto("home", push_history=False)
+
     if current == "main":
         render_page2_sidebar_context()
+    if current == "agentMain":
+        render_agent_sidebar_context()
 
 
 def main():
     st.set_page_config(page_title="图像小说", layout="wide")
     apply_dark_mode()
     nav_init(default_page="signin")
+    st.session_state.setdefault("agent_mode", False)
 
     if "auth_ok" not in st.session_state:
         st.session_state.auth_ok = False
@@ -118,6 +151,15 @@ def main():
     if nav_state().page == "modelSettings" and str(st.session_state.auth_mode or "").strip().lower() == "guest":
         st.warning("游客模式无法访问「APIkey」。")
         goto("home", push_history=False)
+
+    apply_agent_mode_style(
+        bool(st.session_state.get("agent_mode", False)) and nav_state().page != "signin"
+    )
+    transition_token = str(st.session_state.get("agent_transition_token", "") or "")
+    consumed_token = str(st.session_state.get("agent_transition_consumed_token", "") or "")
+    if transition_token and transition_token != consumed_token and nav_state().page != "signin":
+        apply_agent_transition_animation(transition_token)
+        st.session_state.agent_transition_consumed_token = transition_token
 
     if nav_state().page != "signin":
         _render_sidebar()

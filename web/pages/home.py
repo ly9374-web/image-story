@@ -8,13 +8,14 @@ def render():
     st.caption("选择一个功能进入。")
 
     mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
+    agent_mode = bool(st.session_state.get("agent_mode", False))
 
     col1, col2 = st.columns(2)
     with col1:
         if st.button("开始", use_container_width=True):
-            goto("main")
-        if st.button("设置", use_container_width=True):
-            goto("settings")
+            goto("agentMain" if agent_mode else "main")
+        if st.button("prompt", use_container_width=True):
+            goto("agentSettings" if agent_mode else "settings")
     with col2:
         if st.button("记录", use_container_width=True):
             goto("records")

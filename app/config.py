@@ -19,6 +19,8 @@ USER_DEFAULTS_PATH = DATA_DIR / "user_defaults.json"
 CHAT_RECORDS_DIR = DATA_DIR / "ChatRecords"
 CHAT_RECORDS_DIR.mkdir(parents=True, exist_ok=True)
 CHAT_RECORD_DIR = CHAT_RECORDS_DIR
+AGENT_CHAT_RECORDS_DIR = DATA_DIR / "AgentChatRecords"
+AGENT_CHAT_RECORDS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =========================
@@ -33,6 +35,10 @@ class AppStorageKeys:
     PAGE2_TEMPERATURE = "page2Temperature"
     PAGE2_SELECTED_VIDEO_GENERATION_PROVIDER = "page2SelectedVideoGenerationProvider"
 
+    AGENT_SELECTED_CHAT_MODEL = "agentSelectedChatModel"
+    AGENT_TEMPERATURE = "agentTemperature"
+    AGENT_EVOLUTION_ROUNDS = "agentEvolutionRounds"
+
     DOMOAI_API_KEY = "domoaiApiKey"
     ZHIPU_API_KEY = "zhipuApiKey"
     DEEPSEEK_API_KEY = "deepseekApiKey"
@@ -41,6 +47,10 @@ class AppStorageKeys:
     SELECTED_SYSTEM_PROMPT_RECORD_ID = "selectedSystemPromptRecordID"
     SYSTEM_PROMPT_RECORD_NEXT_INDEX = "systemPromptRecordNextIndex"
 
+    AGENT_PROMPT_RECORDS = "agentPromptRecords"
+    SELECTED_AGENT_PROMPT_RECORD_ID = "selectedAgentPromptRecordID"
+    AGENT_PROMPT_RECORD_NEXT_INDEX = "agentPromptRecordNextIndex"
+
     HIDDEN_SYSTEM_PROMPT_RECORDS = "hiddenSystemPromptRecords"
     HIDDEN_SYSTEM_PROMPT_RECORD_NEXT_INDEX = "hiddenSystemPromptRecordNextIndex"
 
@@ -48,6 +58,8 @@ class AppStorageKeys:
     CHAT_RECORD_NEXT_INDEX = "chatRecordNextIndex"
     CHAT_RECORD_INDEX = "chatRecordIndex"
     GUEST_CHAT_RECORD_INDEX = "guestChatRecordIndex"
+    AGENT_CHAT_RECORD_INDEX = "agentChatRecordIndex"
+    GUEST_AGENT_CHAT_RECORD_INDEX = "guestAgentChatRecordIndex"
 
     STORED_IMAGE_URL_RECORDS = "storedImageURLRecords"
     STORED_IMAGE_URL_RECORD_NEXT_INDEX = "storedImageURLRecordNextIndex"
