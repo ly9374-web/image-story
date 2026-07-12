@@ -4,7 +4,11 @@ import streamlit as st
 
 from app.ui.theme import apply_agent_mode_style, apply_agent_transition_animation, apply_dark_mode
 from web.nav import back, goto, nav_init, nav_state
-from web.pages.agent_chat import render as render_agent_chat, render_sidebar_context as render_agent_sidebar_context
+from web.pages.agent_chat import (
+    prepare_from_navigation as prepare_agent_chat_from_navigation,
+    render as render_agent_chat,
+    render_sidebar_context as render_agent_sidebar_context,
+)
 from web.pages.agent_settings import render as render_agent_settings
 from web.pages.home import render as render_home
 from web.pages.model_settings import render as render_model_settings
@@ -94,6 +98,7 @@ def _render_sidebar():
     if st.sidebar.button(agent_label, use_container_width=True, type="primary" if agent_mode else "secondary"):
         st.session_state.agent_transition_token = str(int(time.time() * 1000))
         if agent_mode:
+            st.session_state.agent_transition_direction = "out"
             previous = st.session_state.get("agent_previous_page")
             previous_kwargs = dict(st.session_state.get("agent_previous_page_kwargs") or {})
             st.session_state.agent_mode = False
@@ -110,6 +115,7 @@ def _render_sidebar():
                     goto("home", push_history=False)
             st.rerun()
         else:
+            st.session_state.agent_transition_direction = "in"
             st.session_state.agent_previous_page = current
             st.session_state.agent_previous_page_kwargs = dict(st.session_state.get("nav_page_kwargs") or {})
             st.session_state.agent_mode = True
@@ -156,15 +162,25 @@ def main():
         bool(st.session_state.get("agent_mode", False)) and nav_state().page != "signin"
     )
     transition_token = str(st.session_state.get("agent_transition_token", "") or "")
+    transition_direction = str(st.session_state.get("agent_transition_direction", "in") or "in")
     consumed_token = str(st.session_state.get("agent_transition_consumed_token", "") or "")
-    if transition_token and transition_token != consumed_token and nav_state().page != "signin":
-        apply_agent_transition_animation(transition_token)
+    consumed_direction = str(st.session_state.get("agent_transition_consumed_direction", "") or "")
+    if (
+        transition_token
+        and (transition_token != consumed_token or transition_direction != consumed_direction)
+        and nav_state().page != "signin"
+    ):
+        apply_agent_transition_animation(transition_token, transition_direction)
         st.session_state.agent_transition_consumed_token = transition_token
-
-    if nav_state().page != "signin":
-        _render_sidebar()
+        st.session_state.agent_transition_consumed_direction = transition_direction
 
     page = nav_state().page
+    if page == "agentMain":
+        prepare_agent_chat_from_navigation()
+
+    if page != "signin":
+        _render_sidebar()
+
     _, render = PAGES.get(page, PAGES["home"])
     render()
 

@@ -11,6 +11,8 @@ from app.services.agent_prompts import DEFAULT_STORY_BRAIN_GENERATOR_PROMPT
 
 
 NPC_NAMES = ["NPC1", "NPC2", "NPC3"]
+REQUIRED_OUTPUT_PREFIX = "好，我会按要求回复"
+REQUIRED_OUTPUT_PREFIX_RETRIES = 4
 
 
 @dataclass
@@ -66,6 +68,22 @@ def load_context_from_settings() -> AgentContext:
     )
 
 
+def default_context() -> AgentContext:
+    return AgentContext(
+        selected_chat_model="grok1",
+        temperature=0.8,
+        evolution_rounds=5,
+        player_route_history_turns=3,
+        npc_history_turns=8,
+        action_decision_history_turns=3,
+        scene_history_turns=3,
+    )
+
+
+def reset_context_settings():
+    save_context_to_settings(default_context())
+
+
 def save_context_to_settings(ctx: AgentContext):
     model = str(ctx.selected_chat_model or "grok1")
     if model not in ["grok1", "grok2", "deepseek"]:
@@ -116,6 +134,26 @@ def _debug_model_name(ctx: AgentContext) -> str:
     return "deepseek-v4-pro" if ctx.selected_chat_model == "deepseek" else "grok-4.3"
 
 
+def _with_required_output_prefix_instruction(user_message: str) -> str:
+    message = str(user_message or "").strip()
+    prefix_instruction = f"""
+输出格式要求：
+- 本次回复开头必须是 "{REQUIRED_OUTPUT_PREFIX}"，然后再回复剩下内容
+""".strip()
+    return f"{message}\n\n{prefix_instruction}".strip()
+
+
+def _has_required_output_prefix(output: str) -> bool:
+    return str(output or "").strip().startswith(REQUIRED_OUTPUT_PREFIX)
+
+
+def _strip_required_output_prefix(output: str) -> str:
+    text = str(output or "").strip()
+    if text.startswith(REQUIRED_OUTPUT_PREFIX):
+        return text[len(REQUIRED_OUTPUT_PREFIX) :].lstrip()
+    return text
+
+
 def _send_model_with_debug(
     *,
     ctx: AgentContext,
@@ -128,6 +166,8 @@ def _send_model_with_debug(
     metadata: Optional[dict] = None,
 ) -> str:
     context_messages = context_messages or []
+    raw_user_message = str(user_message or "").strip()
+    user_message_with_prefix_instruction = _with_required_output_prefix_instruction(raw_user_message)
     entry = {
         "at": now_iso(),
         "label": str(label or "").strip(),
@@ -137,21 +177,44 @@ def _send_model_with_debug(
         "temperature": ctx.temperature,
         "system_prompt": str(system_prompt or "").strip(),
         "context_messages": context_messages,
-        "user_prompt": str(user_message or "").strip(),
+        "user_prompt": user_message_with_prefix_instruction,
         "output": "",
         "error": "",
-        "metadata": metadata or {},
+        "metadata": {
+            **(metadata or {}),
+            "required_output_prefix": REQUIRED_OUTPUT_PREFIX,
+            "required_output_prefix_retries": REQUIRED_OUTPUT_PREFIX_RETRIES,
+        },
     }
     try:
-        output = _send_model(
-            ctx=ctx,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            context_messages=context_messages,
-        )
-        entry["output"] = str(output or "")
+        attempts = []
+        output = ""
+        for attempt_number in range(1, REQUIRED_OUTPUT_PREFIX_RETRIES + 2):
+            output = _send_model(
+                ctx=ctx,
+                system_prompt=system_prompt,
+                user_message=user_message_with_prefix_instruction,
+                context_messages=context_messages,
+            )
+            raw_output = str(output or "")
+            passed = _has_required_output_prefix(raw_output)
+            attempts.append(
+                {
+                    "attempt": attempt_number,
+                    "passed_prefix_check": passed,
+                    "raw_output": raw_output,
+                }
+            )
+            if passed:
+                break
+
+        entry["output"] = _strip_required_output_prefix(output)
+        entry["raw_output"] = str(output or "")
+        entry["prefix_check_passed"] = _has_required_output_prefix(output)
+        entry["prefix_retry_count"] = max(0, len(attempts) - 1)
+        entry["prefix_attempts"] = attempts
         debug_logs.append(entry)
-        return output
+        return entry["output"]
     except Exception as exc:
         entry["error"] = user_facing_error_message(exc)
         debug_logs.append(entry)
@@ -308,21 +371,18 @@ def _prompt5_user_message(
 JSON 格式：
 {{
   "next_npc": "NPC1 | NPC2 | NPC3",
-  "next_instruction": ""
+  "what_just_happened": ""
 }}
 
 规则：
 - next_npc 必须从另外两个 NPC 中选择一个，不能选择刚刚行动的 NPC。
-- 如果 3 个 NPC 已不在同一场景，stop_evolution 必须为 true，并说明 stop_reason。
 
 刚刚行动的 NPC：
 {npc_name}
 
-刚刚的 NPC 输出：
+what_just_happened:
 {npc_output}
 
-本次自动演化中已经行动过的角色：
-{", ".join(acted_npcs) or "暂无"}
 {story_brain_section}
 
 最近互动历史：
@@ -333,7 +393,7 @@ JSON 格式：
 def _npc_user_message(
     *,
     npc_name: str,
-    instruction: str,
+    what_just_happened: str,
     story_brain: str,
     events: list,
     history_turns: int,
@@ -347,17 +407,16 @@ def _npc_user_message(
 """
 
     return f"""
-你现在作为 {npc_name} 行动。
 
 要求：
-- 输出应包含角色台词、角色动作、角色状态变化、持有物品变化。
+- 输出应用自然语言自然格式输出，包含角色说的话和行为
 {story_brain_section}
 
 最近互动历史：
 {_history_text(events, limit=history_turns) or "暂无"}
 
-本轮行为指令：
-{instruction}
+what_just_happened:
+{what_just_happened}
 """.strip()
 
 
@@ -379,7 +438,6 @@ def _scene_user_message(
 
     return f"""
 请基于最近互动历史生成一段面向玩家的场景描述。
-只描述环境、氛围、角色位置、角色外在状态、明显变化、玩家可观察信息。
 {story_brain_rule}
 {story_brain_section}
 
@@ -390,7 +448,7 @@ def _scene_user_message(
 
 def _story_brain_generator_user_message(*, story_brain: str, events: list) -> str:
     return f"""
-过去最多7轮记录：
+过去的记录：
 {_history_text(events, limit=7) or "暂无"}
 
 现有 Story Brain：
@@ -415,6 +473,10 @@ def _event(kind: str, content: str, *, speaker: str = "", meta: Optional[dict] =
         "content": str(content or "").strip(),
         "meta": meta or {},
     }
+
+
+def _absolute_debug_log_index(start_index: int, debug_logs: list) -> int:
+    return int(start_index) + len(debug_logs or [])
 
 
 def _generate_story_brain(
@@ -530,7 +592,7 @@ def iter_agent_evolution(
         parser_user_message = _prompt4_user_message(
             player_input=player_input,
             story_brain=story_brain,
-            events=new_events,
+            events=previous_events,
             history_turns=ctx.player_route_history_turns,
             story_brain_enabled=story_brain_enabled,
         )
@@ -551,7 +613,11 @@ def iter_agent_evolution(
         current_npc = _npc_name(parser_data.get("first_npc"))
         if not current_npc:
             raise ValueError("玩家路由必须返回 first_npc，且值必须是 NPC1、NPC2 或 NPC3。")
-        next_instruction = str(parser_data.get("npc_instruction") or "").strip() or "根据玩家输入和当前局势作出一次有效行为。"
+        what_just_happened = (
+            str(parser_data.get("next_instruction") or "").strip()
+            or str(parser_data.get("npc_instruction") or "").strip()
+            or "根据玩家输入和当前局势作出一次有效行为。"
+        )
 
         acted_npcs: List[str] = []
 
@@ -568,12 +634,14 @@ def iter_agent_evolution(
             )
             npc_user_message = _npc_user_message(
                 npc_name=current_npc,
-                instruction=next_instruction,
+                what_just_happened=what_just_happened,
                 story_brain=story_brain,
                 events=new_events,
                 history_turns=ctx.npc_history_turns,
                 story_brain_enabled=story_brain_enabled,
             )
+            npc_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
+            npc_story_brain_before = story_brain
             npc_output = _send_model_with_debug(
                 ctx=ctx,
                 debug_logs=debug_logs,
@@ -583,7 +651,7 @@ def iter_agent_evolution(
                 round_number=completed_rounds + 1,
                 metadata={
                     "npc": current_npc,
-                    "instruction": next_instruction,
+                    "what_just_happened": what_just_happened,
                     "story_brain_enabled": story_brain_enabled,
                 },
             ).strip()
@@ -592,7 +660,13 @@ def iter_agent_evolution(
 
             completed_rounds += 1
             acted_npcs.append(current_npc)
-            npc_event = _event("npc", npc_output, speaker=current_npc, meta={"round": completed_rounds})
+            npc_meta = {
+                "round": completed_rounds,
+                "debug_log_start_index": npc_debug_log_start_index,
+            }
+            if story_brain_enabled:
+                npc_meta["story_brain_before"] = npc_story_brain_before
+            npc_event = _event("npc", npc_output, speaker=current_npc, meta=npc_meta)
             new_events.append(npc_event)
             yield AgentRunProgress(
                 phase="event",
@@ -638,11 +712,13 @@ def iter_agent_evolution(
                 npc_name=current_npc,
                 npc_output=npc_output,
                 story_brain=story_brain,
-                events=new_events,
+                events=new_events[:-1],
                 acted_npcs=acted_npcs,
                 history_turns=ctx.action_decision_history_turns,
                 story_brain_enabled=story_brain_enabled,
             )
+            scheduler_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
+            scheduler_story_brain_before = story_brain
             scheduler_raw = _send_model_with_debug(
                 ctx=ctx,
                 debug_logs=debug_logs,
@@ -674,6 +750,8 @@ def iter_agent_evolution(
                     history_turns=ctx.scene_history_turns,
                     story_brain_enabled=story_brain_enabled,
                 )
+                scene_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
+                scene_story_brain_before = story_brain
                 scene_text = _send_model_with_debug(
                     ctx=ctx,
                     debug_logs=debug_logs,
@@ -684,7 +762,13 @@ def iter_agent_evolution(
                     metadata={"story_brain_enabled": story_brain_enabled},
                 ).strip()
                 if scene_text:
-                    scene_event = _event("scene", scene_text, speaker="场景", meta={"round": completed_rounds})
+                    scene_meta = {
+                        "round": completed_rounds,
+                        "debug_log_start_index": scene_debug_log_start_index,
+                    }
+                    if story_brain_enabled:
+                        scene_meta["story_brain_before"] = scene_story_brain_before
+                    scene_event = _event("scene", scene_text, speaker="场景", meta=scene_meta)
                     new_events.append(scene_event)
                     yield AgentRunProgress(
                         phase="event",
@@ -700,7 +784,13 @@ def iter_agent_evolution(
             if bool(scheduler_data.get("stop_evolution")):
                 stopped_early = True
                 reason = str(scheduler_data.get("stop_reason") or "NPC 已不在同一场景，自动演化提前停止。").strip()
-                stop_event = _event("system", reason, speaker="系统", meta={"round": completed_rounds})
+                stop_meta = {
+                    "round": completed_rounds,
+                    "debug_log_start_index": scheduler_debug_log_start_index,
+                }
+                if story_brain_enabled:
+                    stop_meta["story_brain_before"] = scheduler_story_brain_before
+                stop_event = _event("system", reason, speaker="系统", meta=stop_meta)
                 new_events.append(stop_event)
                 yield AgentRunProgress(
                     phase="event",
@@ -723,7 +813,11 @@ def iter_agent_evolution(
             if next_npc == current_npc:
                 raise ValueError("行动裁决返回的 next_npc 不能等于刚刚行动的 NPC。")
             current_npc = next_npc
-            next_instruction = str(scheduler_data.get("next_instruction") or "").strip() or "根据当前局势作出一次有效行为。"
+            what_just_happened = (
+                str(scheduler_data.get("what_just_happened") or "").strip()
+                or str(scheduler_data.get("next_instruction") or "").strip()
+                or "根据当前局势作出一次有效行为。"
+            )
 
         yield AgentRunProgress(
             phase="complete",

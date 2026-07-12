@@ -110,21 +110,11 @@ def _inject_story_brain_into_prompt(
     )
     enhanced_user_message = f"""
 以下是本轮必须参考的 Story Brain Memory Pack，内容已压缩，只包含本轮最相关记忆：
-
 {memory_pack_json}
 
 以下是当前用户输入：
 
 {current_text}
-
-请基于以上内容续写下一段小说。
-
-要求：
-- 保持人物一致性
-- 保持关系连续性
-- 保持主线推进
-- 伏笔 trigger 未明确发生时，不触发、不提到、不解释、不让伏笔影响情节
-- 遵守所有constraints中的限制
 """.strip()
     return enhanced_system_prompt, enhanced_user_message
 
@@ -207,6 +197,22 @@ def load_context_from_settings() -> Page2Context:
     )
 
 
+def default_context() -> Page2Context:
+    return Page2Context(
+        system_prompt=DEFAULT_SYSTEM_PROMPT,
+        context_turn_count=8,
+        selected_chat_model="grok1",
+        story_brain_update_model="deepseek",
+        temperature=0.8,
+        selected_video_generation_provider="domoai",
+    )
+
+
+def reset_context_settings():
+    save_context_to_settings(default_context())
+    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "")
+
+
 def save_context_to_settings(ctx: Page2Context):
     settings.set(AppStorageKeys.SYSTEM_PROMPT, str(ctx.system_prompt or "").strip())
     settings.set(AppStorageKeys.PAGE2_CONTEXT_TURN_COUNT, int(max(0, ctx.context_turn_count)))
@@ -227,7 +233,11 @@ def build_context_messages(
     context_turn_count: int,
 ) -> list[dict]:
     turns_list = list(turns)
-    slice_turns = turns_list[-max(0, int(context_turn_count)) :]
+    turn_count = max(0, int(context_turn_count))
+    if turn_count == 0:
+        return []
+
+    slice_turns = turns_list[-turn_count:]
     messages: list[dict] = []
 
     for turn in slice_turns:

@@ -650,47 +650,60 @@ div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"
     )
 
 
-def apply_agent_transition_animation(token: str) -> None:
+def apply_agent_transition_animation(token: str, direction: str = "in") -> None:
     token = str(token or "").strip()
     if not token:
         return
+    direction = "out" if str(direction or "").strip() == "out" else "in"
+    start_opacity = "1" if direction == "out" else "0"
+    end_opacity = "0" if direction == "out" else "1"
 
     st.markdown(
         f"""
 <style>
-@keyframes agent-blue-wash-{token} {{
+@keyframes agent-background-reveal-{token} {{
   0% {{
-    opacity: 0;
-    backdrop-filter: saturate(1.0);
-  }}
-  18% {{
-    opacity: 0.86;
-    backdrop-filter: saturate(1.35);
-  }}
-  62% {{
-    opacity: 0.58;
-    backdrop-filter: saturate(1.22);
+    opacity: {start_opacity};
   }}
   100% {{
-    opacity: 0;
-    backdrop-filter: saturate(1.0);
+    opacity: {end_opacity};
   }}
 }}
 
-.agent-transition-overlay-{token} {{
+html,
+body {{
+  background: var(--nm-bg) !important;
+}}
+
+.stApp {{
+  position: relative !important;
+  isolation: isolate !important;
+  background: var(--nm-bg) !important;
+}}
+
+section[data-testid="stMain"] {{
+  background: transparent !important;
+}}
+
+.stApp::before {{
+  content: "";
   position: fixed;
   inset: 0;
-  z-index: 1000002;
+  z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 18% 22%, rgba(56, 189, 248, 0.95), transparent 34%),
-    radial-gradient(circle at 72% 18%, rgba(37, 99, 235, 0.78), transparent 38%),
-    radial-gradient(circle at 50% 76%, rgba(14, 165, 233, 0.58), transparent 42%),
-    linear-gradient(135deg, rgba(5, 14, 28, 0.90), rgba(8, 47, 73, 0.88));
-  animation: agent-blue-wash-{token} 1.2s ease-in-out forwards;
+    radial-gradient(circle at 22% 8%, rgba(14, 116, 144, 0.20), transparent 34%),
+    radial-gradient(circle at 84% 24%, rgba(37, 99, 235, 0.18), transparent 32%),
+    linear-gradient(145deg, #071015 0%, #081823 48%, #0d2030 100%);
+  opacity: {start_opacity};
+  animation: agent-background-reveal-{token} 1s ease forwards;
+}}
+
+.stApp > * {{
+  position: relative !important;
+  z-index: 1 !important;
 }}
 </style>
-<div class="agent-transition-overlay-{token}"></div>
         """,
         unsafe_allow_html=True,
     )

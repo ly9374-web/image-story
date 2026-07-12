@@ -63,6 +63,27 @@ def _ensure_state():
     st.session_state.setdefault("page2_story_brain_enabled", True)
 
 
+def start_new_conversation(reset_settings: bool = False):
+    _ensure_state()
+    if reset_settings:
+        page2_service.reset_context_settings()
+        st.session_state.pop("page2_prompt_record_select", None)
+    st.session_state.page2_record_id = ""
+    st.session_state.page2_loaded_record_id = ""
+    st.session_state.page2_turns = []
+    st.session_state.page2_generated_media = []
+    st.session_state.page2_selected_media_id = ""
+    st.session_state.page2_image_prompt = ""
+    st.session_state.page2_image_prompt_mode = "normal"
+    st.session_state.page2_image_prompt_subject = ""
+    st.session_state.page2_video_prompt = "动起来"
+    st.session_state.page2_story_brain = empty_story_brain()
+    st.session_state.page2_story_brain_enabled = True
+    st.session_state.page2_story_brain_graph_fullscreen = False
+    st.session_state.page2_story_brain_memory_pack_json = ""
+    _clear_story_brain_update_suggestions()
+
+
 def _load_record_from_nav_if_needed():
     record_id = str(get_arg("record_id", "") or "").strip()
     if not record_id:
@@ -678,13 +699,7 @@ def render_sidebar_context():
 
     with st.sidebar:
         if st.button("新建对话", use_container_width=True):
-            st.session_state.page2_record_id = ""
-            st.session_state.page2_loaded_record_id = ""
-            st.session_state.page2_turns = []
-            st.session_state.page2_generated_media = []
-            st.session_state.page2_story_brain = empty_story_brain()
-            st.session_state.page2_selected_media_id = ""
-            _clear_story_brain_update_suggestions()
+            start_new_conversation()
             goto("main", push_history=False)
 
         record_id = str(st.session_state.get("page2_record_id", "") or "")
@@ -871,7 +886,7 @@ def _render_chat_column():
         try:
             reply = page2_service.send_message(
                 ctx=ctx,
-                turns=st.session_state.page2_turns,
+                turns=turns,
                 user_message=new_turn.user_message,
                 story_brain=story_brain,
                 story_brain_enabled=story_brain_enabled,

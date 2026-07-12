@@ -15,11 +15,18 @@ def _record_prompt_values(record) -> dict:
     values = {}
     for field_name, _ in agent_prompts.PROMPT_FIELDS:
         values[field_name] = getattr(record, field_name, "") if record is not None else ""
+        if field_name == "player_parser_prompt" and not str(values[field_name] or "").strip():
+            values[field_name] = agent_prompts.DEFAULT_PLAYER_ROUTE_PROMPT
+        if field_name == "action_scheduler_prompt" and not str(values[field_name] or "").strip():
+            values[field_name] = agent_prompts.DEFAULT_ACTION_DECISION_PROMPT
+        if field_name == "scene_descriptor_prompt" and not str(values[field_name] or "").strip():
+            values[field_name] = agent_prompts.DEFAULT_SCENE_DESCRIPTOR_PROMPT
         if field_name == "story_brain_generator_prompt" and not str(values[field_name] or "").strip():
             values[field_name] = agent_prompts.DEFAULT_STORY_BRAIN_GENERATOR_PROMPT
     values["npc1_name"] = getattr(record, "npc1_name", "NPC1") if record is not None else "NPC1"
     values["npc2_name"] = getattr(record, "npc2_name", "NPC2") if record is not None else "NPC2"
     values["npc3_name"] = getattr(record, "npc3_name", "NPC3") if record is not None else "NPC3"
+    values["default_story_brain"] = getattr(record, "default_story_brain", "") if record is not None else ""
     return values
 
 
@@ -67,6 +74,11 @@ def _apply_generated_values(record_key: str, prompt_values: dict) -> tuple[int, 
         else:
             skipped += 1
 
+    default_story_brain = str(values.get("default_story_brain") or "").strip()
+    if default_story_brain:
+        st.session_state[_field_key("default_story_brain", record_key)] = default_story_brain
+        filled += 1
+
     st.session_state.pop("agent_prompt_generated_values", None)
     return filled, skipped
 
@@ -112,7 +124,10 @@ def _render_generator_body(record_key: str):
 
     st.session_state.agent_prompt_generated_values = {
         "record_key": record_key,
-        "values": generated.to_form_values(),
+        "values": {
+            **generated.to_form_values(),
+            "default_story_brain": str(story or "").strip(),
+        },
     }
     st.session_state.agent_prompt_generator_open = False
     st.rerun()
@@ -251,6 +266,13 @@ def render():
                 disabled=is_guest,
                 key=_field_key(field_name, record_key),
             )
+        edited_default_story_brain = st.text_area(
+            "默认story brain",
+            value=prompt_values.get("default_story_brain", ""),
+            height=320,
+            disabled=is_guest,
+            key=_field_key("default_story_brain", record_key),
+        )
 
         b1, b2, b3 = st.columns(3)
         save = b1.button("保存", type="primary", use_container_width=True, disabled=is_guest)
@@ -265,6 +287,7 @@ def render():
                 npc1_name=edited_npc1_name,
                 npc2_name=edited_npc2_name,
                 npc3_name=edited_npc3_name,
+                default_story_brain=edited_default_story_brain,
                 **edited_values,
             )
             st.success("已保存 Agent prompt")
@@ -283,8 +306,9 @@ def render():
                 npc3_prompt="",
                 player_parser_prompt=agent_prompts.DEFAULT_PLAYER_ROUTE_PROMPT,
                 action_scheduler_prompt=agent_prompts.DEFAULT_ACTION_DECISION_PROMPT,
-                scene_descriptor_prompt="",
+                scene_descriptor_prompt=agent_prompts.DEFAULT_SCENE_DESCRIPTOR_PROMPT,
                 story_brain_generator_prompt=agent_prompts.DEFAULT_STORY_BRAIN_GENERATOR_PROMPT,
+                default_story_brain="",
             )
             st.success("已新建 Agent prompt")
             st.rerun()

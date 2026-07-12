@@ -139,6 +139,11 @@ def _load_record_from_nav_if_needed():
         agent_prompts.select_record(prompt_state, record.prompt_record_id)
 
 
+def prepare_from_navigation():
+    _ensure_state()
+    _load_record_from_nav_if_needed()
+
+
 def _npc_display_names(prompt_record) -> dict:
     return {
         "NPC1": str(getattr(prompt_record, "npc1_name", "NPC1") or "NPC1").strip() or "NPC1",
@@ -276,7 +281,29 @@ def _save_current_record(prompt_record, ctx) -> str:
     return record.id
 
 
-def _new_conversation():
+def _apply_default_story_brain_if_new(prompt_record):
+    default_story_brain = str(getattr(prompt_record, "default_story_brain", "") or "").strip()
+    if not default_story_brain:
+        return
+    if str(st.session_state.get("agent_record_id", "") or "").strip():
+        return
+    if list(st.session_state.get("agent_events") or []):
+        return
+    if str(st.session_state.get("agent_story_brain", "") or "").strip():
+        return
+    st.session_state.agent_story_brain = default_story_brain
+    st.session_state.agent_story_brain_enabled = True
+
+
+def start_new_conversation(reset_settings: bool = False):
+    _ensure_state()
+    if reset_settings:
+        agent_service.reset_context_settings()
+        page2_ctx = page2_service.load_context_from_settings()
+        page2_ctx.selected_video_generation_provider = "domoai"
+        page2_service.save_context_to_settings(page2_ctx)
+        agent_prompts.reset_selected_record()
+        _sync_context_widgets_from_ctx(agent_service.default_context())
     st.session_state.agent_record_id = ""
     st.session_state.agent_loaded_record_id = ""
     st.session_state.agent_events = []
@@ -287,35 +314,38 @@ def _new_conversation():
     st.session_state.agent_story_brain = ""
     st.session_state.agent_last_error = ""
     st.session_state.agent_last_save_notice = ""
+    st.session_state.agent_story_brain_enabled = False
+    _apply_default_story_brain_if_new(_active_prompt_record())
 
 
-def _undo_last_player_turn():
+def _undo_last_model_reply():
     events = list(st.session_state.get("agent_events") or [])
     if not events:
         return False
 
-    last_player_index = None
+    last_model_index = None
     for index in range(len(events) - 1, -1, -1):
         event = events[index]
-        if isinstance(event, dict) and str(event.get("kind", "") or "") == "player":
-            last_player_index = index
+        if isinstance(event, dict) and str(event.get("kind", "") or "") != "player":
+            last_model_index = index
             break
 
-    if last_player_index is None:
-        st.session_state.agent_events = events[:-1]
-    else:
-        player_event = events[last_player_index]
-        if isinstance(player_event, dict):
-            meta = player_event.get("meta")
-            if isinstance(meta, dict) and "story_brain_before" in meta:
-                st.session_state.agent_story_brain = agent_records.story_brain_to_text(
-                    meta.get("story_brain_before")
-                )
-            if isinstance(meta, dict) and isinstance(meta.get("debug_log_start_index"), int):
-                st.session_state.agent_debug_logs = list(
-                    st.session_state.get("agent_debug_logs") or []
-                )[: meta.get("debug_log_start_index")]
-        st.session_state.agent_events = events[:last_player_index]
+    if last_model_index is None:
+        return False
+
+    model_event = events[last_model_index]
+    if isinstance(model_event, dict):
+        meta = model_event.get("meta")
+        if isinstance(meta, dict) and "story_brain_before" in meta:
+            st.session_state.agent_story_brain = agent_records.story_brain_to_text(
+                meta.get("story_brain_before")
+            )
+        if isinstance(meta, dict) and isinstance(meta.get("debug_log_start_index"), int):
+            st.session_state.agent_debug_logs = list(
+                st.session_state.get("agent_debug_logs") or []
+            )[: meta.get("debug_log_start_index")]
+
+    st.session_state.agent_events = events[:last_model_index] + events[last_model_index + 1 :]
     st.session_state.agent_last_error = ""
     return True
 
@@ -359,7 +389,7 @@ def render_sidebar_context():
 
     with st.sidebar:
         if st.button("新建 Agent 对话", use_container_width=True):
-            _new_conversation()
+            start_new_conversation()
             st.rerun()
 
         if st.session_state.get("agent_record_id"):
@@ -370,6 +400,7 @@ def render_sidebar_context():
         _, selected_prompt_record = _select_prompt_record()
         if selected_prompt_record is not None:
             prompt_record = selected_prompt_record
+            _apply_default_story_brain_if_new(prompt_record)
 
         rounds = st.number_input(
             "自动演化轮数",
@@ -432,7 +463,7 @@ def render_sidebar_context():
         st.divider()
         st.subheader("对话")
         if st.button("撤销", use_container_width=True, disabled=not bool(st.session_state.get("agent_events"))):
-            if _undo_last_player_turn():
+            if _undo_last_model_reply():
                 if str(st.session_state.get("agent_record_id", "") or ""):
                     _save_current_record(prompt_record, ctx)
                 st.rerun()
@@ -779,8 +810,7 @@ def _render_url_tools():
 
 
 def render():
-    _ensure_state()
-    _load_record_from_nav_if_needed()
+    prepare_from_navigation()
     st.markdown(
         """
 <style>

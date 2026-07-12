@@ -20,6 +20,16 @@ def _debug_text(value) -> str:
     return str(value or "")
 
 
+def _render_debug_text(label: str, value, key: str, height: int = 180):
+    st.text_area(
+        label,
+        value=_debug_text(value),
+        height=height,
+        disabled=True,
+        key=key,
+    )
+
+
 def _render_agent_debug_record(record):
     st.divider()
     st.subheader("调试记录")
@@ -43,20 +53,16 @@ def _render_agent_debug_record(record):
                 "temperature": entry.get("temperature", ""),
                 "metadata": entry.get("metadata", {}),
             }
-            st.code(_debug_text(meta), language="json")
-            st.markdown("**System Prompt**")
-            st.code(_debug_text(entry.get("system_prompt")), language="text")
+            key_prefix = f"records_agent_debug_{record.id}_{index}"
+            _render_debug_text("Meta", meta, f"{key_prefix}_meta", height=130)
+            _render_debug_text("System Prompt", entry.get("system_prompt"), f"{key_prefix}_system_prompt")
             context_messages = entry.get("context_messages")
             if context_messages:
-                st.markdown("**Context Messages**")
-                st.code(_debug_text(context_messages), language="json")
-            st.markdown("**User Prompt**")
-            st.code(_debug_text(entry.get("user_prompt")), language="text")
+                _render_debug_text("Context Messages", context_messages, f"{key_prefix}_context_messages")
+            _render_debug_text("User Prompt", entry.get("user_prompt"), f"{key_prefix}_user_prompt")
             if entry.get("error"):
-                st.markdown("**Error**")
-                st.code(_debug_text(entry.get("error")), language="text")
-            st.markdown("**Output**")
-            st.code(_debug_text(entry.get("output")), language="text")
+                _render_debug_text("Error", entry.get("error"), f"{key_prefix}_error")
+            _render_debug_text("Output", entry.get("output"), f"{key_prefix}_output")
 
 
 def render():

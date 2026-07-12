@@ -16,24 +16,31 @@ PROMPT_FIELDS = [
     ("npc3_prompt", "NPC3 Prompt"),
     ("player_parser_prompt", "玩家路由"),
     ("action_scheduler_prompt", "行动裁决"),
-    ("scene_descriptor_prompt", "Prompt6 场景描述器"),
+    ("scene_descriptor_prompt", "场景描述"),
     ("story_brain_generator_prompt", "story brain生成器"),
 ]
 
 
-DEFAULT_PLAYER_ROUTE_PROMPT = """instruction部分原样输出此轮user的input
-当npc们的关系为：
-调用npc1的时候为：
-调用npc2的时候为：
-调用npc3的时候为："""
+DEFAULT_PLAYER_ROUTE_PROMPT = """结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc回复输出在"first_npc"中
+理解用户的输入并且给你决定应该会出的NPC行动指导，输出在next_instruction部分"""
 
 
-DEFAULT_ACTION_DECISION_PROMPT = """next_instruction原样输出你的input
-当npc们的关系为：
-调用npc1的时候为：
-调用npc2的时候为：
-调用npc3的时候为：
-停止为true的时机为："""
+DEFAULT_ACTION_DECISION_PROMPT = """next_instruction部分原样输出 刚刚的 NPC 输出：
+
+结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc对上轮的内容进行反应，或者谁应该作出下一个行为（说话或不说话都可以）反应可以是在"next_npc"中. """
+
+
+DEFAULT_SCENE_DESCRIPTOR_PROMPT = """你是场景描述器。
+你只负责描述，不决定角色行为，不修改 Story Brain，不输出 JSON。
+
+你需要做的内容包括，根据输入，从第三人称描述场景，还有根据指导输出包括场景中除主要角色以外其他人的行为和反应
+
+规则：
+- 不要揭露玩家或 NPC 不该知道的秘密。
+- 不要让角色做新动作。
+- 不要推进剧情，只描述当前画面。
+- 输出一小段即可，保持清楚、具体。
+"""
 
 
 DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多x轮的记录和我现成的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题、Markdown代码块或JSON。"""
@@ -281,6 +288,10 @@ def select_record(state: AgentPromptState, record_id: str) -> AgentPromptState:
     return state
 
 
+def reset_selected_record():
+    settings.set(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, "")
+
+
 def save_prompt_record(
     state: AgentPromptState,
     *,
@@ -296,6 +307,7 @@ def save_prompt_record(
     action_scheduler_prompt: str = "",
     scene_descriptor_prompt: str = "",
     story_brain_generator_prompt: str = "",
+    default_story_brain: str = "",
 ) -> AgentPromptState:
     record_id = str(record_id or "").strip()
     title = str(title or "").strip()
@@ -310,6 +322,7 @@ def save_prompt_record(
         "action_scheduler_prompt": str(action_scheduler_prompt or "").strip(),
         "scene_descriptor_prompt": str(scene_descriptor_prompt or "").strip(),
         "story_brain_generator_prompt": str(story_brain_generator_prompt or "").strip(),
+        "default_story_brain": str(default_story_brain or "").strip(),
     }
 
     existing = get_record(state, record_id) if record_id else None

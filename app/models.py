@@ -71,6 +71,7 @@ class AgentPromptRecord:
     action_scheduler_prompt: str = ""
     scene_descriptor_prompt: str = ""
     story_brain_generator_prompt: str = ""
+    default_story_brain: str = ""
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -90,6 +91,7 @@ class AgentPromptRecord:
             action_scheduler_prompt=data.get("action_scheduler_prompt") or data.get("actionSchedulerPrompt") or "",
             scene_descriptor_prompt=data.get("scene_descriptor_prompt") or data.get("sceneDescriptorPrompt") or "",
             story_brain_generator_prompt=data.get("story_brain_generator_prompt") or data.get("storyBrainGeneratorPrompt") or "",
+            default_story_brain=data.get("default_story_brain") or data.get("defaultStoryBrain") or "",
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -108,6 +110,7 @@ class AgentPromptRecord:
             "action_scheduler_prompt": self.action_scheduler_prompt,
             "scene_descriptor_prompt": self.scene_descriptor_prompt,
             "story_brain_generator_prompt": self.story_brain_generator_prompt,
+            "default_story_brain": self.default_story_brain,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
