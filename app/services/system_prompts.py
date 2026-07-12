@@ -86,6 +86,17 @@ def visible_records(state: PromptState) -> list[SystemPromptRecord]:
     return state.records
 
 
+def record_label(
+    state: PromptState,
+    record: SystemPromptRecord,
+    index: int,
+    *,
+    unnamed: str = "未命名 prompt",
+) -> str:
+    prefix = "隐藏：" if record_space(state, record.id) == "hidden" else ""
+    return f"{index + 1}. {prefix}{record.title or unnamed}"
+
+
 def record_space(state: PromptState, record_id: str) -> Optional[str]:
     for record in state.hidden_records:
         if record.id == record_id:
@@ -119,9 +130,6 @@ def save_prompt(
     record_id = str(record_id or "").strip()
     title = str(title or "").strip()
     prompt = str(prompt or "").strip()
-
-    if not prompt:
-        return state
 
     existing = get_record(state, record_id) if record_id else None
 

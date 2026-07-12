@@ -1,14 +1,7 @@
 import streamlit as st
 
 from app.config import AppStorageKeys, settings
-from app.models import SystemPromptRecord
-from app.services import system_prompts
-
-
-def _label_for_record(state: system_prompts.PromptState, record: SystemPromptRecord):
-    space = system_prompts.record_space(state, record.id)
-    prefix = "隐藏：" if space == "hidden" else ""
-    return prefix + (record.title or "未命名记录")
+from app.services import hidden_space, system_prompts
 
 
 def render():
@@ -19,19 +12,34 @@ def render():
 
     if "settings_hidden_space" not in st.session_state:
         st.session_state.settings_hidden_space = False
+    if "settings_hp_nonce" not in st.session_state:
+        st.session_state.settings_hp_nonce = 0
 
     state = system_prompts.load_state(hidden_space=bool(st.session_state.settings_hidden_space))
 
     with st.sidebar:
         st.subheader("System Prompt")
-        passcode = st.text_input("隐藏空间口令", type="password", placeholder="输入口令解锁隐藏记录")
+        passcode = st.text_input(
+            "隐藏空间口令",
+            type="password",
+            placeholder="输入口令切换隐藏模式",
+            key=f"settings_hp_{st.session_state.settings_hp_nonce}",
+        )
         if passcode:
-            state = system_prompts.unlock_hidden_space(state, passcode)
-            st.session_state.settings_hidden_space = state.hidden_space
+            if hidden_space.is_valid_passcode(passcode):
+                st.session_state.settings_hidden_space = not bool(st.session_state.settings_hidden_space)
+                st.session_state.settings_hp_nonce += 1
+                st.rerun()
+            else:
+                st.warning("隐藏空间口令不正确。")
         st.caption("当前使用的 prompt 会同步到 Page2。")
 
     records = system_prompts.visible_records(state)
-    record_by_label = {_label_for_record(state, r): r for r in records}
+    record_labels = [
+        system_prompts.record_label(state, record, index, unnamed="未命名记录")
+        for index, record in enumerate(records)
+    ]
+    record_by_label = dict(zip(record_labels, records))
 
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -46,7 +54,7 @@ def render():
                 if record.id == default_record_id:
                     default_label = label
                     break
-            options = list(record_by_label.keys())
+            options = record_labels
             selected_label = st.radio(
                 "选择记录",
                 options=options,
@@ -55,13 +63,14 @@ def render():
             )
 
     selected_record = record_by_label.get(selected_label) if selected_label else None
-    if is_guest and selected_record is not None:
-        if selected_record.id and selected_record.id != state.selected_record_id:
-            settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, selected_record.id)
-            settings.set(AppStorageKeys.SYSTEM_PROMPT, str(selected_record.prompt or ""))
-            state.selected_record_id = selected_record.id
+    if selected_record is not None and selected_record.id and selected_record.id != state.selected_record_id:
+        settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, selected_record.id)
+        settings.set(AppStorageKeys.SYSTEM_PROMPT, str(selected_record.prompt or ""))
+        state.selected_record_id = selected_record.id
+        st.rerun()
 
     with c2:
+        record_key = selected_record.id if selected_record else "new"
         st.subheader("编辑" if not is_guest else "预览")
         title_value = selected_record.title if selected_record else ""
         prompt_value = selected_record.prompt if selected_record else str(settings.get(AppStorageKeys.SYSTEM_PROMPT, "") or "")
@@ -71,12 +80,19 @@ def render():
             value=title_value,
             placeholder="留空将使用默认名称",
             disabled=is_guest,
+            key=f"system_prompt_title_{record_key}",
         )
-        prompt = st.text_area("prompt", value=prompt_value, height=320, disabled=is_guest)
+        prompt = st.text_area(
+            "prompt",
+            value=prompt_value,
+            height=320,
+            disabled=is_guest,
+            key=f"system_prompt_body_{record_key}",
+        )
 
         b1, b2, b3 = st.columns(3)
         save = b1.button("保存", type="primary", use_container_width=True, disabled=is_guest)
-        new_record = b2.button("另存为新记录", use_container_width=True, disabled=is_guest)
+        new_record = b2.button("新建prompt", use_container_width=True, disabled=is_guest)
         delete = b3.button("删除", use_container_width=True, disabled=is_guest or not selected_record)
 
         if save:
@@ -93,10 +109,10 @@ def render():
             state = system_prompts.save_prompt(
                 state,
                 record_id="",
-                title=title,
-                prompt=prompt,
+                title="",
+                prompt="",
             )
-            st.success("已创建新记录")
+            st.success("已新建 prompt")
             st.rerun()
 
         if delete and selected_record:

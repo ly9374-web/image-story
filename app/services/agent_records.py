@@ -4,22 +4,50 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-from agent_story_brain import empty_agent_story_brain, normalize_agent_story_brain
 from app.config import AGENT_CHAT_RECORDS_DIR, AppStorageKeys, debug_log, settings
 from app.models import GeneratedImageRecord, new_id, now_iso
+
+
+def story_brain_to_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(value or "").strip()
+    return str(value or "").strip()
+
+
+def _history_turn_value(data: dict, snake_key: str, camel_key: str, default: int) -> int:
+    raw = data.get(snake_key)
+    if raw is None:
+        raw = data.get(camel_key)
+    if raw is None:
+        raw = default
+    try:
+        return max(0, int(raw))
+    except Exception:
+        return default
 
 
 @dataclass
 class AgentChatRecord:
     title: str
     events: list
-    story_brain: dict
+    story_brain: str
     generated_media: list = field(default_factory=list)
     debug_logs: list = field(default_factory=list)
     prompt_record_id: str = ""
     selected_chat_model: str = "grok1"
     temperature: float = 0.8
     evolution_rounds: int = 5
+    player_route_history_turns: int = 3
+    npc_history_turns: int = 8
+    action_decision_history_turns: int = 3
+    scene_history_turns: int = 3
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -32,7 +60,7 @@ class AgentChatRecord:
             id=data.get("id") or new_id(),
             title=data.get("title", "Agent 聊天记录"),
             events=data.get("events") if isinstance(data.get("events"), list) else [],
-            story_brain=normalize_agent_story_brain(data.get("story_brain") or data.get("storyBrain")),
+            story_brain=story_brain_to_text(data.get("story_brain") if "story_brain" in data else data.get("storyBrain")),
             generated_media=[
                 GeneratedImageRecord.from_dict(item)
                 for item in (
@@ -49,6 +77,10 @@ class AgentChatRecord:
             selected_chat_model=data.get("selected_chat_model") or data.get("selectedChatModel") or "grok1",
             temperature=float(data.get("temperature", 0.8) or 0.8),
             evolution_rounds=int(data.get("evolution_rounds", 5) or 5),
+            player_route_history_turns=_history_turn_value(data, "player_route_history_turns", "playerRouteHistoryTurns", 3),
+            npc_history_turns=_history_turn_value(data, "npc_history_turns", "npcHistoryTurns", 8),
+            action_decision_history_turns=_history_turn_value(data, "action_decision_history_turns", "actionDecisionHistoryTurns", 3),
+            scene_history_turns=_history_turn_value(data, "scene_history_turns", "sceneHistoryTurns", 3),
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -58,7 +90,7 @@ class AgentChatRecord:
             "id": self.id,
             "title": self.title,
             "events": self.events,
-            "story_brain": normalize_agent_story_brain(self.story_brain),
+            "story_brain": story_brain_to_text(self.story_brain),
             "generated_media": [
                 item.to_dict() if hasattr(item, "to_dict") else item
                 for item in self.generated_media
@@ -68,6 +100,10 @@ class AgentChatRecord:
             "selected_chat_model": self.selected_chat_model,
             "temperature": self.temperature,
             "evolution_rounds": self.evolution_rounds,
+            "player_route_history_turns": self.player_route_history_turns,
+            "npc_history_turns": self.npc_history_turns,
+            "action_decision_history_turns": self.action_decision_history_turns,
+            "scene_history_turns": self.scene_history_turns,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -250,7 +286,7 @@ def empty_record() -> AgentChatRecord:
     return AgentChatRecord(
         title="Agent 聊天记录",
         events=[],
-        story_brain=empty_agent_story_brain(),
+        story_brain="",
         generated_media=[],
         debug_logs=[],
     )

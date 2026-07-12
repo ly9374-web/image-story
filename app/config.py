@@ -38,6 +38,10 @@ class AppStorageKeys:
     AGENT_SELECTED_CHAT_MODEL = "agentSelectedChatModel"
     AGENT_TEMPERATURE = "agentTemperature"
     AGENT_EVOLUTION_ROUNDS = "agentEvolutionRounds"
+    AGENT_PLAYER_ROUTE_HISTORY_TURNS = "agentPlayerRouteHistoryTurns"
+    AGENT_NPC_HISTORY_TURNS = "agentNPCHistoryTurns"
+    AGENT_ACTION_DECISION_HISTORY_TURNS = "agentActionDecisionHistoryTurns"
+    AGENT_SCENE_HISTORY_TURNS = "agentSceneHistoryTurns"
 
     DOMOAI_API_KEY = "domoaiApiKey"
     ZHIPU_API_KEY = "zhipuApiKey"
@@ -53,6 +57,8 @@ class AppStorageKeys:
 
     HIDDEN_SYSTEM_PROMPT_RECORDS = "hiddenSystemPromptRecords"
     HIDDEN_SYSTEM_PROMPT_RECORD_NEXT_INDEX = "hiddenSystemPromptRecordNextIndex"
+    HIDDEN_AGENT_PROMPT_RECORDS = "hiddenAgentPromptRecords"
+    HIDDEN_AGENT_PROMPT_RECORD_NEXT_INDEX = "hiddenAgentPromptRecordNextIndex"
 
     CHAT_RECORDS = "chatRecords"
     CHAT_RECORD_NEXT_INDEX = "chatRecordNextIndex"
@@ -272,8 +278,9 @@ def debug_log(*items):
     对应 Swift 里的 DebugLog.log(...)
     只有 DEBUG_LOG_ENABLED 打开时才打印。
     """
+    settings.load()
     if settings.bool(AppStorageKeys.DEBUG_LOG_ENABLED, False):
-        print(*items)
+        print(*items, flush=True)
 
 
 def mask_authorization_header(value):

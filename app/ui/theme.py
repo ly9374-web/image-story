@@ -687,7 +687,7 @@ def apply_agent_transition_animation(token: str) -> None:
     radial-gradient(circle at 72% 18%, rgba(37, 99, 235, 0.78), transparent 38%),
     radial-gradient(circle at 50% 76%, rgba(14, 165, 233, 0.58), transparent 42%),
     linear-gradient(135deg, rgba(5, 14, 28, 0.90), rgba(8, 47, 73, 0.88));
-  animation: agent-blue-wash-{token} 0.8s ease-in-out forwards;
+  animation: agent-blue-wash-{token} 1.2s ease-in-out forwards;
 }}
 </style>
 <div class="agent-transition-overlay-{token}"></div>

@@ -695,19 +695,40 @@ def render_sidebar_context():
         st.subheader("上下文设置")
         ctx = page2_service.load_context_from_settings()
 
-        # 提供从「设置」里选择 system prompt 记录的入口
-        prompt_state = system_prompts.load_state(hidden_space=False)
+        # 提供从「设置」里选择 system prompt 的入口
+        prompt_state = system_prompts.load_state(
+            hidden_space=bool(st.session_state.get("settings_hidden_space", False))
+        )
         prompt_records = system_prompts.visible_records(prompt_state)
-        prompt_options = ["(使用当前)"] + [r.title for r in prompt_records]
-        chosen = st.selectbox("选择 prompt 记录", options=prompt_options, index=0)
-        if chosen != "(使用当前)":
-            for record in prompt_records:
-                if record.title == chosen:
-                    ctx.system_prompt = record.prompt
-                    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, record.id)
-                    settings.set(AppStorageKeys.SYSTEM_PROMPT, record.prompt)
-                    break
-            page2_service.save_context_to_settings(ctx)
+        prompt_labels = []
+        prompt_by_label = {}
+        selected_prompt_id = str(settings.get(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "") or "")
+        selected_prompt_index = None
+        for index, record in enumerate(prompt_records):
+            label = system_prompts.record_label(prompt_state, record, index)
+            prompt_labels.append(label)
+            prompt_by_label[label] = record
+            if record.id == selected_prompt_id:
+                selected_prompt_index = index
+
+        if prompt_labels:
+            if st.session_state.get("page2_prompt_record_select") not in prompt_labels:
+                st.session_state.pop("page2_prompt_record_select", None)
+            chosen_prompt_label = st.selectbox(
+                "选择 prompt",
+                options=prompt_labels,
+                index=selected_prompt_index,
+                placeholder="选择 prompt",
+                key="page2_prompt_record_select",
+            )
+            chosen_prompt = prompt_by_label.get(chosen_prompt_label)
+            if chosen_prompt is not None and chosen_prompt.id != selected_prompt_id:
+                ctx.system_prompt = chosen_prompt.prompt
+                settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, chosen_prompt.id)
+                settings.set(AppStorageKeys.SYSTEM_PROMPT, chosen_prompt.prompt)
+                page2_service.save_context_to_settings(ctx)
+        else:
+            st.caption("暂无 prompt。")
 
         with st.container(border=True):
             if _chat_scope() == "guest":

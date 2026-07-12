@@ -4,25 +4,81 @@ import json
 from dataclasses import dataclass
 from typing import List, Optional
 
+from app.api.chat_clients import DeepSeekAPIClient, GrokAPIClient
 from app.config import AppStorageKeys, settings
 from app.models import AgentPromptRecord, now_iso
+from app.services import hidden_space
 
 
 PROMPT_FIELDS = [
     ("npc1_prompt", "NPC1 Prompt"),
     ("npc2_prompt", "NPC2 Prompt"),
     ("npc3_prompt", "NPC3 Prompt"),
-    ("player_parser_prompt", "Prompt4 玩家输入解析器"),
-    ("action_scheduler_prompt", "Prompt5 行动裁决与下一角色调度器"),
+    ("player_parser_prompt", "玩家路由"),
+    ("action_scheduler_prompt", "行动裁决"),
     ("scene_descriptor_prompt", "Prompt6 场景描述器"),
+    ("story_brain_generator_prompt", "story brain生成器"),
 ]
+
+
+DEFAULT_PLAYER_ROUTE_PROMPT = """instruction部分原样输出此轮user的input
+当npc们的关系为：
+调用npc1的时候为：
+调用npc2的时候为：
+调用npc3的时候为："""
+
+
+DEFAULT_ACTION_DECISION_PROMPT = """next_instruction原样输出你的input
+当npc们的关系为：
+调用npc1的时候为：
+调用npc2的时候为：
+调用npc3的时候为：
+停止为true的时机为："""
+
+
+DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多x轮的记录和我现成的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题、Markdown代码块或JSON。"""
 
 
 @dataclass
 class AgentPromptState:
+    hidden_space: bool
     records: List[AgentPromptRecord]
+    hidden_records: List[AgentPromptRecord]
     next_index: int
+    hidden_next_index: int
     selected_record_id: str
+
+
+@dataclass
+class GeneratedAgentPrompt:
+    npc1_name: str
+    npc1_prompt: str
+    npc2_name: str
+    npc2_prompt: str
+    npc3_name: str
+    npc3_prompt: str
+    relationship_rules: str
+    raw_text: str
+
+    def to_form_values(self) -> dict:
+        npc3_parts = [
+            str(self.npc3_prompt or "").strip(),
+            str(self.relationship_rules or "").strip(),
+        ]
+        return {
+            "npc1_name": str(self.npc1_name or "").strip(),
+            "npc1_prompt": str(self.npc1_prompt or "").strip(),
+            "npc2_name": str(self.npc2_name or "").strip(),
+            "npc2_prompt": str(self.npc2_prompt or "").strip(),
+            "npc3_name": str(self.npc3_name or "").strip(),
+            "npc3_prompt": "\n\n".join(part for part in npc3_parts if part),
+        }
+
+
+class GeneratedPromptParseError(ValueError):
+    def __init__(self, message: str, raw_text: str):
+        super().__init__(message)
+        self.raw_text = raw_text
 
 
 def _decode_records(raw) -> List[AgentPromptRecord]:
@@ -45,6 +101,102 @@ def _decode_records(raw) -> List[AgentPromptRecord]:
     return records
 
 
+def _extract_json_object(raw_text: str) -> dict:
+    text = str(raw_text or "").strip()
+    if not text:
+        raise ValueError("模型没有返回内容。")
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("模型返回内容里没有找到 JSON 对象。")
+        data = json.loads(text[start : end + 1])
+
+    if not isinstance(data, dict):
+        raise ValueError("模型返回的 JSON 顶层必须是对象。")
+    return data
+
+
+def _require_generated_text(data: dict, key: str) -> str:
+    value = data.get(key)
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("模型返回 JSON 缺少字段：" + key)
+    return text
+
+
+def generate_prompt_from_story(story_description: str, model: str) -> GeneratedAgentPrompt:
+    story_description = str(story_description or "").strip()
+    if not story_description:
+        raise ValueError("请先描述你想生成的大致故事。")
+
+    model = str(model or "").strip().lower()
+    if model not in ["grok2", "deepseek"]:
+        raise ValueError("未知模型：" + str(model or ""))
+
+    system_prompt = """
+你是 Agent 模式角色 prompt 设计器。根据用户给出的故事设想，生成 3 个 NPC 的名字和角色 prompt。
+
+要求：
+1. 只输出一个合法 JSON 对象，不要输出 Markdown、解释或代码块。
+2. JSON 必须包含以下 7 个字符串字段：
+   npc1_name, npc1_prompt, npc2_name, npc2_prompt, npc3_name, npc3_prompt, relationship_rules
+3. 每个 NPC prompt 要包含：身份、性格、说话方式、外形、行为风格、与玩家/其他 NPC 的互动方式。每个npc的prompt需要至少超过330字，可以在包含用户输入信息的基础上再自行丰富细节。
+4. prompt 要适合放进系统提示词，让该 NPC 在故事中稳定扮演角色。
+5. relationship_rules 必须严格使用下面模板，并根据故事填写每一项：
+当npc们的关系为：
+调用npc1的时候为：
+调用npc2的时候为：
+调用npc3的时候为：
+6. 不要把 relationship_rules 分散写进 npc1_prompt 或 npc2_prompt；最终它会被追加到 npc3_prompt 末尾。
+""".strip()
+
+    user_message = "故事设想：\n" + story_description
+    if model == "deepseek":
+        raw_text = DeepSeekAPIClient.send_message(
+            system_prompt=system_prompt,
+            context_messages=[],
+            user_message=user_message,
+            temperature=0.8,
+        )
+    else:
+        raw_text = GrokAPIClient.send_message(
+            system_prompt=system_prompt,
+            context_messages=[],
+            user_message=user_message,
+            model="grok-4.3",
+            temperature=0.8,
+        )
+
+    try:
+        data = _extract_json_object(raw_text)
+        generated = GeneratedAgentPrompt(
+            npc1_name=_require_generated_text(data, "npc1_name"),
+            npc1_prompt=_require_generated_text(data, "npc1_prompt"),
+            npc2_name=_require_generated_text(data, "npc2_name"),
+            npc2_prompt=_require_generated_text(data, "npc2_prompt"),
+            npc3_name=_require_generated_text(data, "npc3_name"),
+            npc3_prompt=_require_generated_text(data, "npc3_prompt"),
+            relationship_rules=_require_generated_text(data, "relationship_rules"),
+            raw_text=str(raw_text or ""),
+        )
+    except ValueError as exc:
+        raise GeneratedPromptParseError(str(exc), str(raw_text or "")) from exc
+
+    return generated
+
+
 def _encode_records(records: List[AgentPromptRecord]) -> str:
     return json.dumps([r.to_dict() for r in records], ensure_ascii=False)
 
@@ -52,28 +204,57 @@ def _encode_records(records: List[AgentPromptRecord]) -> str:
 def _persist(state: AgentPromptState):
     settings.set(AppStorageKeys.AGENT_PROMPT_RECORDS, _encode_records(state.records))
     settings.set(AppStorageKeys.AGENT_PROMPT_RECORD_NEXT_INDEX, int(state.next_index))
+    settings.set(AppStorageKeys.HIDDEN_AGENT_PROMPT_RECORDS, _encode_records(state.hidden_records))
+    settings.set(AppStorageKeys.HIDDEN_AGENT_PROMPT_RECORD_NEXT_INDEX, int(state.hidden_next_index))
     settings.set(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, str(state.selected_record_id or ""))
 
 
-def load_state() -> AgentPromptState:
+def load_state(hidden_space: bool = False) -> AgentPromptState:
     records = _decode_records(settings.get(AppStorageKeys.AGENT_PROMPT_RECORDS, ""))
+    hidden_records = _decode_records(settings.get(AppStorageKeys.HIDDEN_AGENT_PROMPT_RECORDS, ""))
     selected_record_id = str(settings.get(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, "") or "")
     next_index = max(1, int(settings.get(AppStorageKeys.AGENT_PROMPT_RECORD_NEXT_INDEX, 1) or 1))
+    hidden_next_index = max(1, int(settings.get(AppStorageKeys.HIDDEN_AGENT_PROMPT_RECORD_NEXT_INDEX, 1) or 1))
 
-    if selected_record_id and not any(record.id == selected_record_id for record in records):
+    if selected_record_id and not any(record.id == selected_record_id for record in records + hidden_records):
         selected_record_id = ""
         settings.set(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, "")
 
     return AgentPromptState(
+        hidden_space=bool(hidden_space),
         records=records,
+        hidden_records=hidden_records,
         next_index=next_index,
+        hidden_next_index=hidden_next_index,
         selected_record_id=selected_record_id,
     )
 
 
+def visible_records(state: AgentPromptState) -> List[AgentPromptRecord]:
+    if state.hidden_space:
+        return state.records + state.hidden_records
+    return state.records
+
+
+def record_space(state: AgentPromptState, record_id: str) -> Optional[str]:
+    for record in state.hidden_records:
+        if record.id == record_id:
+            return "hidden"
+    for record in state.records:
+        if record.id == record_id:
+            return "normal"
+    return None
+
+
+def unlock_hidden_space(state: AgentPromptState, passcode: str) -> AgentPromptState:
+    if hidden_space.is_valid_passcode(passcode):
+        state.hidden_space = True
+    return state
+
+
 def get_record(state: AgentPromptState, record_id: str) -> Optional[AgentPromptRecord]:
     record_id = str(record_id or "").strip()
-    for record in state.records:
+    for record in state.records + state.hidden_records:
         if record.id == record_id:
             return record
     return None
@@ -81,16 +262,17 @@ def get_record(state: AgentPromptState, record_id: str) -> Optional[AgentPromptR
 
 def selected_record(state: AgentPromptState) -> Optional[AgentPromptRecord]:
     if state.selected_record_id:
-        record = get_record(state, state.selected_record_id)
+        record = next((item for item in visible_records(state) if item.id == state.selected_record_id), None)
         if record is not None:
             return record
-    if state.records:
-        return state.records[0]
+    records = visible_records(state)
+    if records:
+        return records[0]
     return None
 
 
 def select_record(state: AgentPromptState, record_id: str) -> AgentPromptState:
-    record = get_record(state, record_id)
+    record = next((item for item in visible_records(state) if item.id == str(record_id or "").strip()), None)
     if record is None:
         return state
 
@@ -113,6 +295,7 @@ def save_prompt_record(
     player_parser_prompt: str = "",
     action_scheduler_prompt: str = "",
     scene_descriptor_prompt: str = "",
+    story_brain_generator_prompt: str = "",
 ) -> AgentPromptState:
     record_id = str(record_id or "").strip()
     title = str(title or "").strip()
@@ -126,6 +309,7 @@ def save_prompt_record(
         "player_parser_prompt": str(player_parser_prompt or "").strip(),
         "action_scheduler_prompt": str(action_scheduler_prompt or "").strip(),
         "scene_descriptor_prompt": str(scene_descriptor_prompt or "").strip(),
+        "story_brain_generator_prompt": str(story_brain_generator_prompt or "").strip(),
     }
 
     existing = get_record(state, record_id) if record_id else None
@@ -139,13 +323,20 @@ def save_prompt_record(
         _persist(state)
         return state
 
-    new_title = title or f"Agent记录{state.next_index}"
-    state.next_index += 1
+    if state.hidden_space:
+        new_title = title or f"隐藏Agent记录{state.hidden_next_index}"
+        state.hidden_next_index += 1
+    else:
+        new_title = title or f"Agent记录{state.next_index}"
+        state.next_index += 1
     record = AgentPromptRecord(
         title=new_title,
         **values,
     )
-    state.records.append(record)
+    if state.hidden_space:
+        state.hidden_records.append(record)
+    else:
+        state.records.append(record)
     state.selected_record_id = record.id
     _persist(state)
     return state
@@ -157,8 +348,10 @@ def delete_record(state: AgentPromptState, record_id: str) -> AgentPromptState:
         return state
 
     state.records = [record for record in state.records if record.id != record_id]
+    state.hidden_records = [record for record in state.hidden_records if record.id != record_id]
     if state.selected_record_id == record_id:
-        state.selected_record_id = state.records[0].id if state.records else ""
+        records = visible_records(state)
+        state.selected_record_id = records[0].id if records else ""
 
     _persist(state)
     return state

@@ -101,15 +101,24 @@ def _delete_single(storage_key: str):
     st.session_state[_flash_key(storage_key)] = "deleted"
 
 
+def _save_debug_enabled():
+    settings.set(
+        AppStorageKeys.DEBUG_LOG_ENABLED,
+        bool(st.session_state.get("model_settings_debug_log_enabled", False)),
+    )
+
+
 def render():
     st.title("APIkey")
 
     st.caption("已保存的 Key 不会在 UI 中显示；如需更新请重新输入，或点击删除清空。")
 
-    debug_enabled = st.checkbox(
+    st.checkbox(
         "打印调试日志",
         value=settings.bool(AppStorageKeys.DEBUG_LOG_ENABLED, False),
         help="关闭后不会在控制台打印请求体、响应体和调试信息，可减少卡顿。",
+        key="model_settings_debug_log_enabled",
+        on_change=_save_debug_enabled,
     )
 
     st.subheader("API Keys")
@@ -151,5 +160,4 @@ def render():
 
     st.subheader("其他")
     if st.button("返回", use_container_width=True):
-        settings.set(AppStorageKeys.DEBUG_LOG_ENABLED, bool(debug_enabled))
         back()

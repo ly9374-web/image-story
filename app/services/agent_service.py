@@ -4,15 +4,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, Iterator, List, Optional
 
-from agent_story_brain import (
-    agent_memory_pack_to_json,
-    apply_agent_story_brain_updates,
-    build_agent_memory_pack,
-    normalize_agent_story_brain,
-)
 from app.api.chat_clients import DeepSeekAPIClient, GrokAPIClient
 from app.config import AppStorageKeys, settings, user_facing_error_message
-from app.models import AgentPromptRecord
+from app.models import AgentPromptRecord, now_iso
+from app.services.agent_prompts import DEFAULT_STORY_BRAIN_GENERATOR_PROMPT
 
 
 NPC_NAMES = ["NPC1", "NPC2", "NPC3"]
@@ -23,11 +18,15 @@ class AgentContext:
     selected_chat_model: str
     temperature: float
     evolution_rounds: int
+    player_route_history_turns: int = 3
+    npc_history_turns: int = 8
+    action_decision_history_turns: int = 3
+    scene_history_turns: int = 3
 
 
 @dataclass
 class AgentRunResult:
-    story_brain: dict
+    story_brain: str
     events: list
     completed_rounds: int
     stopped_early: bool
@@ -40,7 +39,7 @@ class AgentRunProgress:
     phase: str
     message: str = ""
     event: Optional[dict] = None
-    story_brain: dict = None
+    story_brain: str = ""
     events: list = None
     completed_rounds: int = 0
     stopped_early: bool = False
@@ -60,6 +59,10 @@ def load_context_from_settings() -> AgentContext:
         selected_chat_model=model,
         temperature=float(settings.float(AppStorageKeys.AGENT_TEMPERATURE, 0.8)),
         evolution_rounds=rounds,
+        player_route_history_turns=max(0, settings.int(AppStorageKeys.AGENT_PLAYER_ROUTE_HISTORY_TURNS, 3)),
+        npc_history_turns=max(0, settings.int(AppStorageKeys.AGENT_NPC_HISTORY_TURNS, 8)),
+        action_decision_history_turns=max(0, settings.int(AppStorageKeys.AGENT_ACTION_DECISION_HISTORY_TURNS, 3)),
+        scene_history_turns=max(0, settings.int(AppStorageKeys.AGENT_SCENE_HISTORY_TURNS, 3)),
     )
 
 
@@ -70,6 +73,10 @@ def save_context_to_settings(ctx: AgentContext):
     settings.set(AppStorageKeys.AGENT_SELECTED_CHAT_MODEL, model)
     settings.set(AppStorageKeys.AGENT_TEMPERATURE, float(ctx.temperature))
     settings.set(AppStorageKeys.AGENT_EVOLUTION_ROUNDS, min(25, max(1, int(ctx.evolution_rounds))))
+    settings.set(AppStorageKeys.AGENT_PLAYER_ROUTE_HISTORY_TURNS, max(0, int(ctx.player_route_history_turns)))
+    settings.set(AppStorageKeys.AGENT_NPC_HISTORY_TURNS, max(0, int(ctx.npc_history_turns)))
+    settings.set(AppStorageKeys.AGENT_ACTION_DECISION_HISTORY_TURNS, max(0, int(ctx.action_decision_history_turns)))
+    settings.set(AppStorageKeys.AGENT_SCENE_HISTORY_TURNS, max(0, int(ctx.scene_history_turns)))
 
 
 def _send_model(
@@ -105,6 +112,52 @@ def _send_model(
     )
 
 
+def _debug_model_name(ctx: AgentContext) -> str:
+    return "deepseek-v4-pro" if ctx.selected_chat_model == "deepseek" else "grok-4.3"
+
+
+def _send_model_with_debug(
+    *,
+    ctx: AgentContext,
+    debug_logs: list,
+    label: str,
+    system_prompt: str,
+    user_message: str,
+    context_messages: Optional[list] = None,
+    round_number: Optional[int] = None,
+    metadata: Optional[dict] = None,
+) -> str:
+    context_messages = context_messages or []
+    entry = {
+        "at": now_iso(),
+        "label": str(label or "").strip(),
+        "round": round_number,
+        "model": _debug_model_name(ctx),
+        "selected_chat_model": ctx.selected_chat_model,
+        "temperature": ctx.temperature,
+        "system_prompt": str(system_prompt or "").strip(),
+        "context_messages": context_messages,
+        "user_prompt": str(user_message or "").strip(),
+        "output": "",
+        "error": "",
+        "metadata": metadata or {},
+    }
+    try:
+        output = _send_model(
+            ctx=ctx,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            context_messages=context_messages,
+        )
+        entry["output"] = str(output or "")
+        debug_logs.append(entry)
+        return output
+    except Exception as exc:
+        entry["error"] = user_facing_error_message(exc)
+        debug_logs.append(entry)
+        raise
+
+
 def _strip_json_text(raw_text: str) -> str:
     text = str(raw_text or "").strip()
     if text.startswith("```"):
@@ -125,6 +178,18 @@ def _strip_json_text(raw_text: str) -> str:
     return text
 
 
+def _strip_plain_text_output(raw_text: str) -> str:
+    text = str(raw_text or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
 def _parse_json_object(raw_text: str, *, label: str) -> dict:
     text = _strip_json_text(raw_text)
     try:
@@ -137,15 +202,14 @@ def _parse_json_object(raw_text: str, *, label: str) -> dict:
     return data
 
 
-def _updates_from(data: dict) -> dict:
-    updates = data.get("story_brain_updates")
-    if updates is None:
-        updates = data.get("suggested_updates")
-    if updates is None:
-        updates = []
-    if not isinstance(updates, list):
-        raise ValueError("story_brain_updates 必须是数组。")
-    return {"suggested_updates": updates}
+def _story_brain_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    return str(value or "").strip()
 
 
 def _npc_name(value: Any) -> str:
@@ -165,42 +229,56 @@ def _npc_name(value: Any) -> str:
 
 
 def _history_text(events: list, limit: int = 16) -> str:
-    recent = events[-max(1, limit) :]
-    lines = []
-    for event in recent:
+    limit = max(0, int(limit))
+    if limit == 0:
+        return ""
+
+    visible_events = []
+    for event in events or []:
         if not isinstance(event, dict):
             continue
+        content = str(event.get("content", "") or "").strip()
+        if content:
+            visible_events.append(event)
+
+    recent = visible_events[-limit:]
+    lines = []
+    for event in recent:
         kind = str(event.get("kind", "") or "")
         speaker = str(event.get("speaker", "") or "")
         content = str(event.get("content", "") or "").strip()
-        if not content:
-            continue
         prefix = speaker or kind or "event"
         lines.append(f"{prefix}: {content}")
     return "\n".join(lines)
 
 
-def _json_block(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+def _prompt4_user_message(
+    *,
+    player_input: str,
+    story_brain: str,
+    events: list,
+    history_turns: int,
+    story_brain_enabled: bool = True,
+) -> str:
+    story_brain_section = ""
+    if story_brain_enabled:
+        story_brain_section = f"""
+当前 Story Brain：
+{_story_brain_text(story_brain) or "暂无"}
+"""
 
-
-def _prompt4_user_message(*, player_input: str, story_brain: dict, events: list) -> str:
     return f"""
 你必须只输出严格合法 JSON，不要输出 Markdown、代码块或解释。first_npc输出NPC代号而不是NPC名字
 
 返回JSON 格式示例：
 {{
-  "story_brain_updates": [],
   "first_npc": "NPC1 / NPC2 / NPC3",
-  "npc_instruction": "复制",
-  "present_characters": ["NPC1", "NPC2", "NPC3"]
+  "npc_instruction": ""
 }}
-
-当前 Agent Story Brain：
-{_json_block(story_brain)}
+{story_brain_section}
 
 最近互动历史：
-{_history_text(events) or "暂无"}
+{_history_text(events, limit=history_turns) or "暂无"}
 
 玩家输入：
 {player_input}
@@ -211,22 +289,26 @@ def _prompt5_user_message(
     *,
     npc_name: str,
     npc_output: str,
-    story_brain: dict,
+    story_brain: str,
     events: list,
     acted_npcs: List[str],
+    history_turns: int,
+    story_brain_enabled: bool = True,
 ) -> str:
+    story_brain_section = ""
+    if story_brain_enabled:
+        story_brain_section = f"""
+当前 Story Brain：
+{_story_brain_text(story_brain) or "暂无"}
+"""
+
     return f"""
 你必须只输出严格合法 JSON，不要输出 Markdown、代码块或解释。
 
 JSON 格式：
 {{
-  "story_brain_updates": [],
-  "stop_evolution": false,
-  "stop_reason": "",
   "next_npc": "NPC1 | NPC2 | NPC3",
-  "next_instruction": "给下一位 NPC 的行为提示",
-  "present_characters": ["NPC1", "NPC2", "NPC3"],
-  "judgement_summary": "对刚才行动结果的简短裁决"
+  "next_instruction": ""
 }}
 
 规则：
@@ -241,12 +323,10 @@ JSON 格式：
 
 本次自动演化中已经行动过的角色：
 {", ".join(acted_npcs) or "暂无"}
-
-当前 Agent Story Brain：
-{_json_block(story_brain)}
+{story_brain_section}
 
 最近互动历史：
-{_history_text(events) or "暂无"}
+{_history_text(events, limit=history_turns) or "暂无"}
 """.strip()
 
 
@@ -254,40 +334,67 @@ def _npc_user_message(
     *,
     npc_name: str,
     instruction: str,
-    memory_pack_json: str,
+    story_brain: str,
     events: list,
+    history_turns: int,
+    story_brain_enabled: bool = True,
 ) -> str:
+    story_brain_section = ""
+    if story_brain_enabled:
+        story_brain_section = f"""
+当前 Story Brain：
+{_story_brain_text(story_brain) or "暂无"}
+"""
+
     return f"""
 你现在作为 {npc_name} 行动。
 
 要求：
-- 必须产生一次有效行为，不能输出“无需作出反应”。
-- 输出应包含角色台词、角色动作、建议的角色状态变化、建议的持有物品变化。
-- 不要输出分析过程。
-- 如果你输出 JSON，也必须同时让玩家能读懂台词和动作。
-
-该 NPC 可见的 Agent Story Brain Memory Pack：
-{memory_pack_json}
+- 输出应包含角色台词、角色动作、角色状态变化、持有物品变化。
+{story_brain_section}
 
 最近互动历史：
-{_history_text(events) or "暂无"}
+{_history_text(events, limit=history_turns) or "暂无"}
 
 本轮行为指令：
 {instruction}
 """.strip()
 
 
-def _scene_user_message(*, story_brain: dict, events: list) -> str:
-    return f"""
-请基于最近互动历史和当前 Agent Story Brain，生成一段面向玩家的场景描述。
-只描述环境、氛围、角色位置、角色外在状态、明显变化、玩家可观察信息。
-不要决定角色行为，不要修改 Story Brain，不要输出 JSON。
+def _scene_user_message(
+    *,
+    story_brain: str,
+    events: list,
+    history_turns: int,
+    story_brain_enabled: bool = True,
+) -> str:
+    story_brain_section = ""
+    story_brain_rule = "不要决定角色行为，不要输出 JSON。"
+    if story_brain_enabled:
+        story_brain_rule = "不要决定角色行为，不要修改 Story Brain，不要输出 JSON。"
+        story_brain_section = f"""
+当前 Story Brain：
+{_story_brain_text(story_brain) or "暂无"}
+"""
 
-当前 Agent Story Brain：
-{_json_block(story_brain)}
+    return f"""
+请基于最近互动历史生成一段面向玩家的场景描述。
+只描述环境、氛围、角色位置、角色外在状态、明显变化、玩家可观察信息。
+{story_brain_rule}
+{story_brain_section}
 
 最近互动历史：
-{_history_text(events, limit=12) or "暂无"}
+{_history_text(events, limit=history_turns) or "暂无"}
+""".strip()
+
+
+def _story_brain_generator_user_message(*, story_brain: str, events: list) -> str:
+    return f"""
+过去最多7轮记录：
+{_history_text(events, limit=7) or "暂无"}
+
+现有 Story Brain：
+{_story_brain_text(story_brain) or "暂无"}
 """.strip()
 
 
@@ -310,17 +417,50 @@ def _event(kind: str, content: str, *, speaker: str = "", meta: Optional[dict] =
     }
 
 
+def _generate_story_brain(
+    *,
+    ctx: AgentContext,
+    prompt_record: AgentPromptRecord,
+    story_brain: str,
+    events: list,
+    debug_logs: list,
+    completed_rounds: int,
+    metadata: Optional[dict] = None,
+) -> str:
+    generator_user_message = _story_brain_generator_user_message(
+        story_brain=story_brain,
+        events=events,
+    )
+    generator_raw = _send_model_with_debug(
+        ctx=ctx,
+        debug_logs=debug_logs,
+        label="story brain生成器",
+        system_prompt=str(getattr(prompt_record, "story_brain_generator_prompt", "") or DEFAULT_STORY_BRAIN_GENERATOR_PROMPT),
+        user_message=generator_user_message,
+        round_number=completed_rounds,
+        metadata={
+            "history_turns": 7,
+            **(metadata or {}),
+        },
+    )
+    updated_story_brain = _strip_plain_text_output(generator_raw)
+    return updated_story_brain or story_brain
+
+
 def iter_agent_evolution(
     *,
     ctx: AgentContext,
     prompt_record: AgentPromptRecord,
     player_input: str,
-    story_brain: dict,
+    story_brain: str,
     events: list,
     debug_log_start_index: int = 0,
+    story_brain_enabled: bool = True,
 ) -> Iterator[AgentRunProgress]:
-    story_brain = normalize_agent_story_brain(story_brain)
-    new_events = list(events or [])
+    original_story_brain = _story_brain_text(story_brain)
+    story_brain = original_story_brain if story_brain_enabled else ""
+    previous_events = list(events or [])
+    new_events = list(previous_events)
     debug_logs: list = []
     player_input = str(player_input or "").strip()
     completed_rounds = 0
@@ -328,7 +468,7 @@ def iter_agent_evolution(
     if not player_input:
         yield AgentRunProgress(
             phase="complete",
-            story_brain=story_brain,
+            story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=0,
             stopped_early=False,
@@ -337,15 +477,14 @@ def iter_agent_evolution(
         return
 
     try:
-        story_brain_before_player_input = normalize_agent_story_brain(story_brain)
+        player_meta = {"debug_log_start_index": int(debug_log_start_index)}
+        if story_brain_enabled:
+            player_meta["story_brain_before"] = story_brain
         player_event = _event(
             "player",
             player_input,
             speaker="玩家",
-            meta={
-                "story_brain_before": story_brain_before_player_input,
-                "debug_log_start_index": int(debug_log_start_index),
-            },
+            meta=player_meta,
         )
         new_events.append(player_event)
         yield AgentRunProgress(
@@ -359,6 +498,26 @@ def iter_agent_evolution(
             debug_logs=list(debug_logs),
         )
 
+        if story_brain_enabled and not previous_events:
+            yield AgentRunProgress(
+                phase="status",
+                message="正在初始化 Story Brain...",
+                story_brain=story_brain,
+                events=list(new_events),
+                completed_rounds=completed_rounds,
+                stopped_early=stopped_early,
+                debug_logs=list(debug_logs),
+            )
+            story_brain = _generate_story_brain(
+                ctx=ctx,
+                prompt_record=prompt_record,
+                story_brain=story_brain,
+                events=new_events,
+                debug_logs=debug_logs,
+                completed_rounds=0,
+                metadata={"trigger": "first_player_input"},
+            )
+
         yield AgentRunProgress(
             phase="status",
             message="正在解析玩家输入...",
@@ -368,47 +527,36 @@ def iter_agent_evolution(
             stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
-        parser_raw = _send_model(
-            ctx=ctx,
-            system_prompt=prompt_record.player_parser_prompt,
-            user_message=_prompt4_user_message(
-                player_input=player_input,
-                story_brain=story_brain,
-                events=new_events,
-            ),
+        parser_user_message = _prompt4_user_message(
+            player_input=player_input,
+            story_brain=story_brain,
+            events=new_events,
+            history_turns=ctx.player_route_history_turns,
+            story_brain_enabled=story_brain_enabled,
         )
-        parser_data = _parse_json_object(parser_raw, label="Prompt4 玩家输入解析器")
-        story_brain = apply_agent_story_brain_updates(story_brain, _updates_from(parser_data))
-
-        present_characters = parser_data.get("present_characters")
-        if isinstance(present_characters, list):
-            story_brain = apply_agent_story_brain_updates(
-                story_brain,
-                {
-                    "suggested_updates": [
-                        {
-                            "target_type": "scene",
-                            "action": "modify",
-                            "data": {"present_characters": present_characters},
-                        }
-                    ]
-                },
-            )
+        parser_raw = _send_model_with_debug(
+            ctx=ctx,
+            debug_logs=debug_logs,
+            label="玩家路由",
+            system_prompt=prompt_record.player_parser_prompt,
+            user_message=parser_user_message,
+            round_number=0,
+            metadata={
+                "player_input": player_input,
+                "story_brain_enabled": story_brain_enabled,
+            },
+        )
+        parser_data = _parse_json_object(parser_raw, label="玩家路由")
 
         current_npc = _npc_name(parser_data.get("first_npc"))
         if not current_npc:
-            raise ValueError("Prompt4 必须返回 first_npc，且值必须是 NPC1、NPC2 或 NPC3。")
+            raise ValueError("玩家路由必须返回 first_npc，且值必须是 NPC1、NPC2 或 NPC3。")
         next_instruction = str(parser_data.get("npc_instruction") or "").strip() or "根据玩家输入和当前局势作出一次有效行为。"
 
         acted_npcs: List[str] = []
 
         while completed_rounds < ctx.evolution_rounds:
             npc_prompt = _npc_prompt_for(prompt_record, current_npc)
-            memory_pack = build_agent_memory_pack(
-                npc_name=current_npc,
-                current_text=next_instruction,
-                story_brain=story_brain,
-            )
             yield AgentRunProgress(
                 phase="status",
                 message=f"第 {completed_rounds + 1} 轮：{current_npc} 正在行动...",
@@ -418,15 +566,26 @@ def iter_agent_evolution(
                 stopped_early=stopped_early,
                 debug_logs=list(debug_logs),
             )
-            npc_output = _send_model(
+            npc_user_message = _npc_user_message(
+                npc_name=current_npc,
+                instruction=next_instruction,
+                story_brain=story_brain,
+                events=new_events,
+                history_turns=ctx.npc_history_turns,
+                story_brain_enabled=story_brain_enabled,
+            )
+            npc_output = _send_model_with_debug(
                 ctx=ctx,
+                debug_logs=debug_logs,
+                label=f"{current_npc} 行动",
                 system_prompt=npc_prompt,
-                user_message=_npc_user_message(
-                    npc_name=current_npc,
-                    instruction=next_instruction,
-                    memory_pack_json=agent_memory_pack_to_json(memory_pack),
-                    events=new_events,
-                ),
+                user_message=npc_user_message,
+                round_number=completed_rounds + 1,
+                metadata={
+                    "npc": current_npc,
+                    "instruction": next_instruction,
+                    "story_brain_enabled": story_brain_enabled,
+                },
             ).strip()
             if not npc_output:
                 raise ValueError(f"{current_npc} 没有产生有效输出。")
@@ -446,63 +605,58 @@ def iter_agent_evolution(
                 debug_logs=list(debug_logs),
             )
 
-            yield AgentRunProgress(
-                phase="status",
-                message=f"第 {completed_rounds} 轮：正在裁决并更新 Story Brain...",
-                story_brain=story_brain,
-                events=list(new_events),
-                completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
-                debug_logs=list(debug_logs),
-            )
-            scheduler_raw = _send_model(
-                ctx=ctx,
-                system_prompt=prompt_record.action_scheduler_prompt,
-                user_message=_prompt5_user_message(
-                    npc_name=current_npc,
-                    npc_output=npc_output,
-                    story_brain=story_brain,
-                    events=new_events,
-                    acted_npcs=acted_npcs,
-                ),
-            )
-            scheduler_data = _parse_json_object(scheduler_raw, label="Prompt5 行动裁决与下一角色调度器")
-            story_brain = apply_agent_story_brain_updates(story_brain, _updates_from(scheduler_data))
-
-            judgement_summary = str(scheduler_data.get("judgement_summary") or "").strip()
-            if judgement_summary:
-                judgement_event = _event(
-                    "judgement",
-                    judgement_summary,
-                    speaker="裁决",
-                    meta={"round": completed_rounds},
-                )
-                new_events.append(judgement_event)
+            if story_brain_enabled and completed_rounds % 6 == 0:
                 yield AgentRunProgress(
-                    phase="event",
-                    message=f"第 {completed_rounds} 轮：裁决完成。",
-                    event=judgement_event,
+                    phase="status",
+                    message=f"第 {completed_rounds} 轮：正在更新 Story Brain...",
                     story_brain=story_brain,
                     events=list(new_events),
                     completed_rounds=completed_rounds,
                     stopped_early=stopped_early,
                     debug_logs=list(debug_logs),
                 )
-
-            present_characters = scheduler_data.get("present_characters")
-            if isinstance(present_characters, list):
-                story_brain = apply_agent_story_brain_updates(
-                    story_brain,
-                    {
-                        "suggested_updates": [
-                            {
-                                "target_type": "scene",
-                                "action": "modify",
-                                "data": {"present_characters": present_characters},
-                            }
-                        ]
-                    },
+                story_brain = _generate_story_brain(
+                    ctx=ctx,
+                    prompt_record=prompt_record,
+                    story_brain=story_brain,
+                    events=new_events,
+                    debug_logs=debug_logs,
+                    completed_rounds=completed_rounds,
+                    metadata={"trigger": "npc_round_interval"},
                 )
+
+            yield AgentRunProgress(
+                phase="status",
+                message=f"第 {completed_rounds} 轮：正在裁决并选择下一位角色...",
+                story_brain=story_brain,
+                events=list(new_events),
+                completed_rounds=completed_rounds,
+                stopped_early=stopped_early,
+                debug_logs=list(debug_logs),
+            )
+            scheduler_user_message = _prompt5_user_message(
+                npc_name=current_npc,
+                npc_output=npc_output,
+                story_brain=story_brain,
+                events=new_events,
+                acted_npcs=acted_npcs,
+                history_turns=ctx.action_decision_history_turns,
+                story_brain_enabled=story_brain_enabled,
+            )
+            scheduler_raw = _send_model_with_debug(
+                ctx=ctx,
+                debug_logs=debug_logs,
+                label="行动裁决",
+                system_prompt=prompt_record.action_scheduler_prompt,
+                user_message=scheduler_user_message,
+                round_number=completed_rounds,
+                metadata={
+                    "npc": current_npc,
+                    "acted_npcs": list(acted_npcs),
+                    "story_brain_enabled": story_brain_enabled,
+                },
+            )
+            scheduler_data = _parse_json_object(scheduler_raw, label="行动裁决")
 
             if completed_rounds % 3 == 0:
                 yield AgentRunProgress(
@@ -514,10 +668,20 @@ def iter_agent_evolution(
                     stopped_early=stopped_early,
                     debug_logs=list(debug_logs),
                 )
-                scene_text = _send_model(
+                scene_user_message = _scene_user_message(
+                    story_brain=story_brain,
+                    events=new_events,
+                    history_turns=ctx.scene_history_turns,
+                    story_brain_enabled=story_brain_enabled,
+                )
+                scene_text = _send_model_with_debug(
                     ctx=ctx,
+                    debug_logs=debug_logs,
+                    label="Prompt6 场景描述器",
                     system_prompt=prompt_record.scene_descriptor_prompt,
-                    user_message=_scene_user_message(story_brain=story_brain, events=new_events),
+                    user_message=scene_user_message,
+                    round_number=completed_rounds,
+                    metadata={"story_brain_enabled": story_brain_enabled},
                 ).strip()
                 if scene_text:
                     scene_event = _event("scene", scene_text, speaker="场景", meta={"round": completed_rounds})
@@ -555,16 +719,16 @@ def iter_agent_evolution(
 
             next_npc = _npc_name(scheduler_data.get("next_npc"))
             if not next_npc:
-                raise ValueError("Prompt5 必须返回 next_npc，且值必须是 NPC1、NPC2 或 NPC3。")
+                raise ValueError("行动裁决必须返回 next_npc，且值必须是 NPC1、NPC2 或 NPC3。")
             if next_npc == current_npc:
-                raise ValueError("Prompt5 返回的 next_npc 不能等于刚刚行动的 NPC。")
+                raise ValueError("行动裁决返回的 next_npc 不能等于刚刚行动的 NPC。")
             current_npc = next_npc
             next_instruction = str(scheduler_data.get("next_instruction") or "").strip() or "根据当前局势作出一次有效行为。"
 
         yield AgentRunProgress(
             phase="complete",
             message="Agent 自动演化完成。",
-            story_brain=story_brain,
+            story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=completed_rounds,
             stopped_early=stopped_early,
@@ -578,7 +742,7 @@ def iter_agent_evolution(
             phase="event",
             message=message,
             event=error_event,
-            story_brain=story_brain,
+            story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
             stopped_early=stopped_early,
@@ -588,7 +752,7 @@ def iter_agent_evolution(
         yield AgentRunProgress(
             phase="complete",
             message=message,
-            story_brain=story_brain,
+            story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=completed_rounds,
             stopped_early=stopped_early,
@@ -602,9 +766,10 @@ def run_agent_evolution(
     ctx: AgentContext,
     prompt_record: AgentPromptRecord,
     player_input: str,
-    story_brain: dict,
+    story_brain: str,
     events: list,
     debug_log_start_index: int = 0,
+    story_brain_enabled: bool = True,
 ) -> AgentRunResult:
     final_progress: Optional[AgentRunProgress] = None
     for progress in iter_agent_evolution(
@@ -614,14 +779,14 @@ def run_agent_evolution(
         story_brain=story_brain,
         events=events,
         debug_log_start_index=debug_log_start_index,
+        story_brain_enabled=story_brain_enabled,
     ):
         if progress.phase == "complete":
             final_progress = progress
 
     if final_progress is None:
-        normalized_story_brain = normalize_agent_story_brain(story_brain)
         return AgentRunResult(
-            story_brain=normalized_story_brain,
+            story_brain=_story_brain_text(story_brain),
             events=list(events or []),
             completed_rounds=0,
             stopped_early=False,

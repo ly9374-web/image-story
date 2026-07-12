@@ -1,18 +1,12 @@
 import base64
 import html
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from agent_story_brain import (
-    agent_memory_pack_to_json,
-    build_agent_memory_pack,
-    empty_agent_story_brain,
-    normalize_agent_story_brain,
-)
 from app.api.media_clients import CloudinaryUploader
 from app.config import user_facing_error_message
 from app.models import GeneratedMediaKind
@@ -20,7 +14,34 @@ from app.services import agent_prompts, agent_records, agent_service, page2_serv
 from web.nav import get_arg
 
 
-NPC_IDS = ["NPC1", "NPC2", "NPC3"]
+_story_brain_text_editor_component = components.declare_component(
+    "agent_story_brain_text_editor",
+    path=str(Path(__file__).resolve().parents[1] / "components" / "agent_story_brain_text_editor"),
+)
+
+
+def _sync_context_widgets_from_ctx(ctx):
+    st.session_state.agent_evolution_rounds_input = int(ctx.evolution_rounds)
+    st.session_state.agent_player_route_history_turns_input = int(ctx.player_route_history_turns)
+    st.session_state.agent_npc_history_turns_input = int(ctx.npc_history_turns)
+    st.session_state.agent_action_decision_history_turns_input = int(ctx.action_decision_history_turns)
+    st.session_state.agent_scene_history_turns_input = int(ctx.scene_history_turns)
+    st.session_state.agent_selected_chat_model_input = str(ctx.selected_chat_model or "grok1")
+    st.session_state.agent_temperature_input = float(ctx.temperature)
+
+
+def _ensure_context_widget_state(ctx):
+    defaults = {
+        "agent_evolution_rounds_input": int(ctx.evolution_rounds),
+        "agent_player_route_history_turns_input": int(ctx.player_route_history_turns),
+        "agent_npc_history_turns_input": int(ctx.npc_history_turns),
+        "agent_action_decision_history_turns_input": int(ctx.action_decision_history_turns),
+        "agent_scene_history_turns_input": int(ctx.scene_history_turns),
+        "agent_selected_chat_model_input": str(ctx.selected_chat_model or "grok1"),
+        "agent_temperature_input": float(ctx.temperature),
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
 
 
 def _chat_scope() -> Optional[str]:
@@ -31,8 +52,8 @@ def _chat_scope() -> Optional[str]:
 def _ensure_state():
     st.session_state.setdefault("agent_record_id", "")
     st.session_state.setdefault("agent_loaded_record_id", "")
-    st.session_state.setdefault("agent_story_brain", empty_agent_story_brain())
-    st.session_state.agent_story_brain = normalize_agent_story_brain(
+    st.session_state.setdefault("agent_story_brain", "")
+    st.session_state.agent_story_brain = agent_records.story_brain_to_text(
         st.session_state.get("agent_story_brain")
     )
     st.session_state.setdefault("agent_events", [])
@@ -49,8 +70,8 @@ def _ensure_state():
     st.session_state.setdefault("agent_last_save_notice", "")
 
 
-def _current_story_brain() -> dict:
-    story_brain = normalize_agent_story_brain(st.session_state.get("agent_story_brain"))
+def _current_story_brain() -> str:
+    story_brain = agent_records.story_brain_to_text(st.session_state.get("agent_story_brain"))
     st.session_state.agent_story_brain = story_brain
     return story_brain
 
@@ -63,23 +84,16 @@ def _show_error(exc: Exception):
     st.error(user_facing_error_message(exc))
 
 
-def _agent_story_text(value) -> str:
-    return str(value or "").strip()
-
-
-def _new_agent_story_id(prefix: str) -> str:
-    return prefix + "_" + uuid.uuid4().hex[:10]
-
-
-def _save_agent_story_brain(story_brain: dict, prompt_record=None, ctx=None):
-    st.session_state.agent_story_brain = normalize_agent_story_brain(story_brain)
+def _save_agent_story_brain(story_brain: str, prompt_record=None, ctx=None):
+    st.session_state.agent_story_brain = agent_records.story_brain_to_text(story_brain)
     if prompt_record is not None and ctx is not None and str(st.session_state.get("agent_record_id", "") or ""):
         _save_current_record(prompt_record, ctx)
 
 
 def _active_prompt_record():
-    state = agent_prompts.load_state()
-    return agent_prompts.selected_record(state) or (state.records[0] if state.records else None)
+    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
+    records = agent_prompts.visible_records(state)
+    return agent_prompts.selected_record(state) or (records[0] if records else None)
 
 
 def _load_record_from_nav_if_needed():
@@ -98,7 +112,7 @@ def _load_record_from_nav_if_needed():
     st.session_state.agent_record_id = record.id
     st.session_state.agent_loaded_record_id = record.id
     st.session_state.agent_events = list(record.events or [])
-    st.session_state.agent_story_brain = normalize_agent_story_brain(record.story_brain)
+    st.session_state.agent_story_brain = agent_records.story_brain_to_text(record.story_brain)
     st.session_state.agent_generated_media = list(record.generated_media or [])
     st.session_state.agent_debug_logs = list(getattr(record, "debug_logs", []) or [])
     st.session_state.agent_selected_media_id = ""
@@ -110,10 +124,18 @@ def _load_record_from_nav_if_needed():
     ctx.selected_chat_model = record.selected_chat_model or ctx.selected_chat_model
     ctx.temperature = float(record.temperature)
     ctx.evolution_rounds = int(record.evolution_rounds)
+    ctx.player_route_history_turns = int(getattr(record, "player_route_history_turns", ctx.player_route_history_turns))
+    ctx.npc_history_turns = int(getattr(record, "npc_history_turns", ctx.npc_history_turns))
+    ctx.action_decision_history_turns = int(getattr(record, "action_decision_history_turns", ctx.action_decision_history_turns))
+    ctx.scene_history_turns = int(getattr(record, "scene_history_turns", ctx.scene_history_turns))
     agent_service.save_context_to_settings(ctx)
+    _sync_context_widgets_from_ctx(ctx)
 
     if str(record.prompt_record_id or "").strip():
-        prompt_state = agent_prompts.load_state()
+        prompt_state = agent_prompts.load_state(hidden_space=True)
+        if agent_prompts.record_space(prompt_state, record.prompt_record_id) == "hidden":
+            st.session_state.agent_prompt_hidden_space = True
+        prompt_state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
         agent_prompts.select_record(prompt_state, record.prompt_record_id)
 
 
@@ -203,14 +225,14 @@ def _render_event_list(events: list, display_names: dict):
 
 
 def _select_prompt_record():
-    state = agent_prompts.load_state()
-    records = state.records
+    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
+    records = agent_prompts.visible_records(state)
     if not records:
         st.warning("暂无 Agent prompt 记录。请先到 Agent Prompt 页面创建一条记录。")
         return state, None
 
     options = [
-        f"{index + 1}. {record.title or '未命名 Agent 记录'}"
+        f"{index + 1}. {'隐藏：' if agent_prompts.record_space(state, record.id) == 'hidden' else ''}{record.title or '未命名 Agent 记录'}"
         for index, record in enumerate(records)
     ]
     selected = agent_prompts.selected_record(state) or records[0]
@@ -239,6 +261,10 @@ def _build_record(prompt_record, ctx) -> agent_records.AgentChatRecord:
     record.selected_chat_model = ctx.selected_chat_model
     record.temperature = float(ctx.temperature)
     record.evolution_rounds = int(ctx.evolution_rounds)
+    record.player_route_history_turns = int(ctx.player_route_history_turns)
+    record.npc_history_turns = int(ctx.npc_history_turns)
+    record.action_decision_history_turns = int(ctx.action_decision_history_turns)
+    record.scene_history_turns = int(ctx.scene_history_turns)
     record.title = agent_records.build_record_title(record.events)
     return record
 
@@ -258,7 +284,7 @@ def _new_conversation():
     st.session_state.agent_debug_logs = []
     st.session_state.agent_selected_media_id = ""
     st.session_state.agent_image_prompt = ""
-    st.session_state.agent_story_brain = empty_agent_story_brain()
+    st.session_state.agent_story_brain = ""
     st.session_state.agent_last_error = ""
     st.session_state.agent_last_save_notice = ""
 
@@ -281,8 +307,8 @@ def _undo_last_player_turn():
         player_event = events[last_player_index]
         if isinstance(player_event, dict):
             meta = player_event.get("meta")
-            if isinstance(meta, dict) and isinstance(meta.get("story_brain_before"), dict):
-                st.session_state.agent_story_brain = normalize_agent_story_brain(
+            if isinstance(meta, dict) and "story_brain_before" in meta:
+                st.session_state.agent_story_brain = agent_records.story_brain_to_text(
                     meta.get("story_brain_before")
                 )
             if isinstance(meta, dict) and isinstance(meta.get("debug_log_start_index"), int):
@@ -294,310 +320,15 @@ def _undo_last_player_turn():
     return True
 
 
-def _render_agent_character_editor(story_brain: dict, prompt_record, ctx):
-    characters = story_brain.setdefault("characters", [])
-    with st.expander("角色"):
-        if st.button("新增角色", key="agent_story_add_character_btn", use_container_width=True):
-            characters.append(
-                {
-                    "id": _new_agent_story_id("char"),
-                    "name": "",
-                    "speech_style": "",
-                    "behavior_style": "",
-                    "status": "",
-                    "goal": "",
-                    "secret": "",
-                    "other": "",
-                    "location": "",
-                    "items": [],
-                }
-            )
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-        if not characters:
-            st.caption("暂无角色。")
-            return
-
-        labels = [
-            _agent_story_text(item.get("name")) or _agent_story_text(item.get("id")) or f"角色{index + 1}"
-            for index, item in enumerate(characters)
-            if isinstance(item, dict)
-        ]
-        selected_label = st.selectbox("选择角色", options=labels, key="agent_story_character_select")
-        selected_index = labels.index(selected_label)
-        character = characters[selected_index]
-        record_key = _agent_story_text(character.get("id")) or f"character_{selected_index}"
-
-        name = st.text_input("name", value=_agent_story_text(character.get("name")), key=f"agent_story_character_name_{record_key}")
-        speech_style = st.text_area("speech_style", value=_agent_story_text(character.get("speech_style")), key=f"agent_story_character_speech_{record_key}")
-        behavior_style = st.text_area("behavior_style", value=_agent_story_text(character.get("behavior_style")), key=f"agent_story_character_behavior_{record_key}")
-        status = st.text_area("status", value=_agent_story_text(character.get("status")), key=f"agent_story_character_status_{record_key}")
-        goal = st.text_area("goal", value=_agent_story_text(character.get("goal")), key=f"agent_story_character_goal_{record_key}")
-        secret = st.text_area("secret", value=_agent_story_text(character.get("secret")), key=f"agent_story_character_secret_{record_key}")
-        other = st.text_area("other", value=_agent_story_text(character.get("other")), key=f"agent_story_character_other_{record_key}")
-        location = st.text_input("location", value=_agent_story_text(character.get("location")), key=f"agent_story_character_location_{record_key}")
-        items_raw = st.text_input("items（逗号分隔）", value="，".join(character.get("items") or []), key=f"agent_story_character_items_{record_key}")
-
-        c1, c2 = st.columns(2)
-        if c1.button("保存角色修改", key=f"agent_story_save_character_{record_key}", use_container_width=True):
-            characters[selected_index] = {
-                "id": _agent_story_text(character.get("id")) or _new_agent_story_id("char"),
-                "name": name,
-                "speech_style": speech_style,
-                "behavior_style": behavior_style,
-                "status": status,
-                "goal": goal,
-                "secret": secret,
-                "other": other,
-                "location": location,
-                "items": [item.strip() for item in items_raw.replace("，", ",").split(",") if item.strip()],
-            }
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.success("已保存角色。")
-            st.rerun()
-        if c2.button("删除这个角色", key=f"agent_story_delete_character_{record_key}", use_container_width=True):
-            del characters[selected_index]
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-
-def _render_agent_relationship_editor(story_brain: dict, prompt_record, ctx):
-    relationships = story_brain.setdefault("relationships", [])
-    characters = story_brain.setdefault("characters", [])
-    character_names = [
-        _agent_story_text(item.get("name"))
-        for item in characters
-        if isinstance(item, dict) and _agent_story_text(item.get("name"))
-    ]
-    with st.expander("关系"):
-        if st.button("新增关系", key="agent_story_add_relationship_btn", use_container_width=True):
-            relationships.append(
-                {
-                    "id": _new_agent_story_id("rel"),
-                    "from": character_names[0] if character_names else "",
-                    "to": character_names[1] if len(character_names) > 1 else "",
-                    "type": "",
-                    "detail": "",
-                    "known_by": [],
-                    "hidden_from": [],
-                }
-            )
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-        if not relationships:
-            st.caption("暂无关系。")
-            return
-
-        labels = []
-        for index, relationship in enumerate(relationships):
-            if not isinstance(relationship, dict):
-                labels.append(f"关系{index + 1}")
-                continue
-            left = _agent_story_text(relationship.get("from"))
-            right = _agent_story_text(relationship.get("to"))
-            rel_type = _agent_story_text(relationship.get("type"))
-            labels.append(f"{left or '?'} -> {right or '?'} {rel_type}".strip())
-        selected_label = st.selectbox("选择关系", options=labels, key="agent_story_relationship_select")
-        selected_index = labels.index(selected_label)
-        relationship = relationships[selected_index]
-        record_key = _agent_story_text(relationship.get("id")) or f"relationship_{selected_index}"
-
-        from_name = st.text_input("from", value=_agent_story_text(relationship.get("from")), key=f"agent_story_relationship_from_{record_key}")
-        to_name = st.text_input("to", value=_agent_story_text(relationship.get("to")), key=f"agent_story_relationship_to_{record_key}")
-        rel_type = st.text_input("type", value=_agent_story_text(relationship.get("type")), key=f"agent_story_relationship_type_{record_key}")
-        detail = st.text_area("detail", value=_agent_story_text(relationship.get("detail")), key=f"agent_story_relationship_detail_{record_key}")
-        known_by = st.multiselect("known_by", options=character_names, default=[item for item in relationship.get("known_by", []) if item in character_names], key=f"agent_story_relationship_known_{record_key}")
-        hidden_from = st.multiselect("hidden_from", options=character_names, default=[item for item in relationship.get("hidden_from", []) if item in character_names], key=f"agent_story_relationship_hidden_{record_key}")
-
-        c1, c2 = st.columns(2)
-        if c1.button("保存关系修改", key=f"agent_story_save_relationship_{record_key}", use_container_width=True):
-            relationships[selected_index] = {
-                "id": _agent_story_text(relationship.get("id")) or _new_agent_story_id("rel"),
-                "from": from_name,
-                "to": to_name,
-                "type": rel_type,
-                "detail": detail,
-                "known_by": known_by,
-                "hidden_from": hidden_from,
-            }
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.success("已保存关系。")
-            st.rerun()
-        if c2.button("删除这个关系", key=f"agent_story_delete_relationship_{record_key}", use_container_width=True):
-            del relationships[selected_index]
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-
-def _render_agent_event_editor(story_brain: dict, prompt_record, ctx):
-    events = story_brain.setdefault("events", [])
-    characters = story_brain.setdefault("characters", [])
-    character_names = [
-        _agent_story_text(item.get("name"))
-        for item in characters
-        if isinstance(item, dict) and _agent_story_text(item.get("name"))
-    ]
-    with st.expander("事件"):
-        if st.button("新增事件", key="agent_story_add_event_btn", use_container_width=True):
-            events.append(
-                {
-                    "id": _new_agent_story_id("event"),
-                    "type": "主线",
-                    "title": "",
-                    "content": "",
-                    "status": "",
-                    "trigger": "",
-                    "related_characters": [],
-                    "known_by": [],
-                    "hidden_from": [],
-                }
-            )
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-        if not events:
-            st.caption("暂无事件。")
-            return
-
-        labels = [
-            (_agent_story_text(item.get("title")) or _agent_story_text(item.get("content"))[:18] or f"事件{index + 1}")
-            for index, item in enumerate(events)
-            if isinstance(item, dict)
-        ]
-        selected_label = st.selectbox("选择事件", options=labels, key="agent_story_event_select")
-        selected_index = labels.index(selected_label)
-        event = events[selected_index]
-        record_key = _agent_story_text(event.get("id")) or f"event_{selected_index}"
-
-        current_type = _agent_story_text(event.get("type")) or "主线"
-        event_type = st.selectbox(
-            "type",
-            options=["主线", "伏笔", "限制"],
-            index=["主线", "伏笔", "限制"].index(current_type) if current_type in ["主线", "伏笔", "限制"] else 0,
-            key=f"agent_story_event_type_{record_key}",
-        )
-        title = st.text_input("title", value=_agent_story_text(event.get("title")), key=f"agent_story_event_title_{record_key}")
-        content = st.text_area("content", value=_agent_story_text(event.get("content")), key=f"agent_story_event_content_{record_key}")
-        status = st.text_input("status", value=_agent_story_text(event.get("status")), key=f"agent_story_event_status_{record_key}")
-        trigger = st.text_input("trigger", value=_agent_story_text(event.get("trigger")), key=f"agent_story_event_trigger_{record_key}")
-        related = st.multiselect("related_characters", options=character_names, default=[item for item in event.get("related_characters", []) if item in character_names], key=f"agent_story_event_related_{record_key}")
-        known_by = st.multiselect("known_by", options=character_names, default=[item for item in event.get("known_by", []) if item in character_names], key=f"agent_story_event_known_{record_key}")
-        hidden_from = st.multiselect("hidden_from", options=character_names, default=[item for item in event.get("hidden_from", []) if item in character_names], key=f"agent_story_event_hidden_{record_key}")
-
-        c1, c2 = st.columns(2)
-        if c1.button("保存事件修改", key=f"agent_story_save_event_{record_key}", use_container_width=True):
-            events[selected_index] = {
-                "id": _agent_story_text(event.get("id")) or _new_agent_story_id("event"),
-                "type": event_type,
-                "title": title,
-                "content": content,
-                "status": status,
-                "trigger": trigger if event_type == "伏笔" else "",
-                "related_characters": related,
-                "known_by": known_by,
-                "hidden_from": hidden_from,
-            }
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.success("已保存事件。")
-            st.rerun()
-        if c2.button("删除这个事件", key=f"agent_story_delete_event_{record_key}", use_container_width=True):
-            del events[selected_index]
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-
-def _render_agent_secret_editor(story_brain: dict, prompt_record, ctx):
-    secrets = story_brain.setdefault("secrets", [])
-    characters = story_brain.setdefault("characters", [])
-    character_names = [
-        _agent_story_text(item.get("name"))
-        for item in characters
-        if isinstance(item, dict) and _agent_story_text(item.get("name"))
-    ]
-    with st.expander("内部秘密"):
-        if st.button("新增内部秘密", key="agent_story_add_secret_btn", use_container_width=True):
-            secrets.append(
-                {
-                    "id": _new_agent_story_id("secret"),
-                    "from_character": character_names[0] if character_names else "",
-                    "secret": "",
-                    "known_by": [],
-                    "hidden_from": [],
-                    "status": "未公开",
-                }
-            )
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-        if not secrets:
-            st.caption("暂无内部秘密。")
-            return
-
-        labels = []
-        for index, secret in enumerate(secrets):
-            owner = _agent_story_text(secret.get("from_character")) if isinstance(secret, dict) else ""
-            content = _agent_story_text(secret.get("secret")) if isinstance(secret, dict) else ""
-            labels.append(f"{owner or '?'}：{content[:18] or '内部秘密' }")
-        selected_label = st.selectbox("选择内部秘密", options=labels, key="agent_story_secret_select")
-        selected_index = labels.index(selected_label)
-        secret = secrets[selected_index]
-        record_key = _agent_story_text(secret.get("id")) or f"secret_{selected_index}"
-
-        from_character = st.text_input("from_character", value=_agent_story_text(secret.get("from_character")), key=f"agent_story_secret_from_{record_key}")
-        secret_text = st.text_area("secret", value=_agent_story_text(secret.get("secret")), key=f"agent_story_secret_text_{record_key}")
-        known_by = st.multiselect("known_by", options=character_names, default=[item for item in secret.get("known_by", []) if item in character_names], key=f"agent_story_secret_known_{record_key}")
-        hidden_from = st.multiselect("hidden_from", options=character_names, default=[item for item in secret.get("hidden_from", []) if item in character_names], key=f"agent_story_secret_hidden_{record_key}")
-        status = st.text_input("status", value=_agent_story_text(secret.get("status")), key=f"agent_story_secret_status_{record_key}")
-
-        c1, c2 = st.columns(2)
-        if c1.button("保存内部秘密", key=f"agent_story_save_secret_{record_key}", use_container_width=True):
-            secrets[selected_index] = {
-                "id": _agent_story_text(secret.get("id")) or _new_agent_story_id("secret"),
-                "from_character": from_character,
-                "secret": secret_text,
-                "known_by": known_by,
-                "hidden_from": hidden_from,
-                "status": status,
-            }
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.success("已保存内部秘密。")
-            st.rerun()
-        if c2.button("删除这个内部秘密", key=f"agent_story_delete_secret_{record_key}", use_container_width=True):
-            del secrets[selected_index]
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.rerun()
-
-
-def _render_agent_scene_editor(story_brain: dict, prompt_record, ctx):
-    scene = story_brain.setdefault("scene", {})
-    characters = story_brain.setdefault("characters", [])
-    character_names = [
-        _agent_story_text(item.get("name"))
-        for item in characters
-        if isinstance(item, dict) and _agent_story_text(item.get("name"))
-    ]
-    with st.expander("场景"):
-        location = st.text_input("location", value=_agent_story_text(scene.get("location")), key="agent_story_scene_location")
-        time_value = st.text_input("time", value=_agent_story_text(scene.get("time")), key="agent_story_scene_time")
-        environment = st.text_area("environment", value=_agent_story_text(scene.get("environment")), key="agent_story_scene_environment")
-        present = st.multiselect(
-            "present_characters",
-            options=character_names,
-            default=[item for item in scene.get("present_characters", []) if item in character_names],
-            key="agent_story_scene_present",
-        )
-        if st.button("保存场景修改", key="agent_story_save_scene", use_container_width=True):
-            story_brain["scene"] = {
-                "location": location,
-                "time": time_value,
-                "environment": environment,
-                "present_characters": present,
-            }
-            _save_agent_story_brain(story_brain, prompt_record, ctx)
-            st.success("已保存场景。")
-            st.rerun()
+def _render_story_brain_text_editor(value: str) -> str:
+    result = _story_brain_text_editor_component(
+        value=str(value or ""),
+        key="agent_story_brain_text_editor_component",
+        default=None,
+    )
+    if isinstance(result, str):
+        return result
+    return str(value or "")
 
 
 def _render_agent_story_brain_panel(prompt_record, ctx):
@@ -614,40 +345,17 @@ def _render_agent_story_brain_panel(prompt_record, ctx):
         return
 
     story_brain = _current_story_brain()
-    st.subheader("Story Brain")
-    if st.button("重置 Story Brain", key="agent_story_reset_btn", use_container_width=True):
-        st.session_state.agent_story_brain = empty_agent_story_brain()
-        if str(st.session_state.get("agent_record_id", "") or ""):
-            _save_current_record(prompt_record, ctx)
+    next_story_brain = _render_story_brain_text_editor(story_brain)
+    if next_story_brain != story_brain:
+        _save_agent_story_brain(next_story_brain, prompt_record, ctx)
         st.rerun()
-    _render_agent_scene_editor(story_brain, prompt_record, ctx)
-    _render_agent_character_editor(story_brain, prompt_record, ctx)
-    _render_agent_relationship_editor(story_brain, prompt_record, ctx)
-    _render_agent_event_editor(story_brain, prompt_record, ctx)
-    _render_agent_secret_editor(story_brain, prompt_record, ctx)
-    with st.expander("查看原始 Agent Story Brain JSON"):
-        st.json(_current_story_brain())
-    with st.expander("NPC 可见 Memory Pack 预览"):
-        display_names = _npc_display_names(prompt_record)
-        npc_label_to_id = {display_names[npc_id]: npc_id for npc_id in NPC_IDS}
-        selected_label = st.selectbox(
-            "NPC",
-            options=list(npc_label_to_id.keys()),
-            key="agent_memory_pack_preview_npc",
-        )
-        npc_id = npc_label_to_id.get(selected_label, "NPC1")
-        memory_pack = build_agent_memory_pack(
-            npc_name=npc_id,
-            current_text="",
-            story_brain=_current_story_brain(),
-        )
-        st.code(agent_memory_pack_to_json(memory_pack), language="json")
 
 
 def render_sidebar_context():
     _ensure_state()
     prompt_record = None
     ctx = agent_service.load_context_from_settings()
+    _ensure_context_widget_state(ctx)
 
     with st.sidebar:
         if st.button("新建 Agent 对话", use_container_width=True):
@@ -667,25 +375,47 @@ def render_sidebar_context():
             "自动演化轮数",
             min_value=1,
             max_value=25,
-            value=int(ctx.evolution_rounds),
+            key="agent_evolution_rounds_input",
+        )
+        player_route_history_turns = st.number_input(
+            "玩家路由带入轮数",
+            step=1,
+            key="agent_player_route_history_turns_input",
+        )
+        npc_history_turns = st.number_input(
+            "NPC行动带入轮数",
+            step=1,
+            key="agent_npc_history_turns_input",
+        )
+        action_decision_history_turns = st.number_input(
+            "行动裁决带入轮数",
+            step=1,
+            key="agent_action_decision_history_turns_input",
+        )
+        scene_history_turns = st.number_input(
+            "场景描述带入轮数",
+            step=1,
+            key="agent_scene_history_turns_input",
         )
         model = st.selectbox(
             "聊天模型",
             options=["grok1", "grok2", "deepseek"],
-            index=["grok1", "grok2", "deepseek"].index(ctx.selected_chat_model)
-            if ctx.selected_chat_model in ["grok1", "grok2", "deepseek"]
-            else 0,
+            key="agent_selected_chat_model_input",
         )
         temperature = st.slider(
             "temperature",
             min_value=0.0,
             max_value=2.0,
-            value=float(ctx.temperature),
             step=0.05,
+            key="agent_temperature_input",
         )
         ctx.selected_chat_model = model
         ctx.temperature = float(temperature)
         ctx.evolution_rounds = int(rounds)
+        ctx.player_route_history_turns = int(player_route_history_turns)
+        ctx.npc_history_turns = int(npc_history_turns)
+        ctx.action_decision_history_turns = int(action_decision_history_turns)
+        ctx.scene_history_turns = int(scene_history_turns)
         agent_service.save_context_to_settings(ctx)
 
         page2_ctx = page2_service.load_context_from_settings()
@@ -732,7 +462,8 @@ def _render_chat_column(prompt_record, ctx):
         with history:
             _render_event_list(st.session_state.agent_events, display_names)
 
-        story_brain = _current_story_brain()
+        story_brain_enabled = bool(st.session_state.get("agent_story_brain_enabled", False))
+        story_brain = _current_story_brain() if story_brain_enabled else ""
         live_history = st.empty()
         progress_notice = st.empty()
         user_text = st.chat_input("输入剧情指令、角色控制、环境变化或突发事件", key="agent_chat_input")
@@ -758,6 +489,7 @@ def _render_chat_column(prompt_record, ctx):
                 story_brain=story_brain,
                 events=st.session_state.agent_events,
                 debug_log_start_index=len(st.session_state.get("agent_debug_logs") or []),
+                story_brain_enabled=story_brain_enabled,
             ):
                 if progress.message:
                     if progress.phase == "complete" and not progress.error:
@@ -784,6 +516,7 @@ def _render_chat_column(prompt_record, ctx):
                     story_brain=story_brain,
                     events=st.session_state.agent_events,
                     debug_log_start_index=len(st.session_state.get("agent_debug_logs") or []),
+                    story_brain_enabled=story_brain_enabled,
                 )
             else:
                 result = agent_service.AgentRunResult(
@@ -795,7 +528,8 @@ def _render_chat_column(prompt_record, ctx):
                     debug_logs=final_progress.debug_logs,
                 )
 
-            st.session_state.agent_story_brain = result.story_brain
+            if story_brain_enabled:
+                st.session_state.agent_story_brain = result.story_brain
             st.session_state.agent_events = result.events
             st.session_state.agent_debug_logs = list(st.session_state.get("agent_debug_logs") or []) + list(result.debug_logs or [])
             st.session_state.agent_last_error = result.error
