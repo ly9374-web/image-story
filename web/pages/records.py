@@ -63,6 +63,21 @@ def _render_agent_debug_record(record):
             if entry.get("error"):
                 _render_debug_text("Error", entry.get("error"), f"{key_prefix}_error")
             _render_debug_text("Output", entry.get("output"), f"{key_prefix}_output")
+            attempts = entry.get("prefix_attempts")
+            if isinstance(attempts, list) and attempts:
+                st.caption(f"前缀检查调用返回：共 {len(attempts)} 次")
+                for attempt_index, attempt in enumerate(attempts):
+                    if not isinstance(attempt, dict):
+                        continue
+                    attempt_number = attempt.get("attempt", attempt_index + 1)
+                    passed = bool(attempt.get("passed_prefix_check"))
+                    attempt_label = "通过" if passed else "未通过"
+                    _render_debug_text(
+                        f"Attempt {attempt_number} Raw Output（{attempt_label}）",
+                        attempt.get("raw_output"),
+                        f"{key_prefix}_attempt_{attempt_index}_raw_output",
+                        height=220,
+                    )
 
 
 def render():

@@ -42,6 +42,7 @@ class AppStorageKeys:
     AGENT_NPC_HISTORY_TURNS = "agentNPCHistoryTurns"
     AGENT_ACTION_DECISION_HISTORY_TURNS = "agentActionDecisionHistoryTurns"
     AGENT_SCENE_HISTORY_TURNS = "agentSceneHistoryTurns"
+    AGENT_STORY_BRAIN_TURNS = "agentStoryBrainTurns"
 
     DOMOAI_API_KEY = "domoaiApiKey"
     ZHIPU_API_KEY = "zhipuApiKey"

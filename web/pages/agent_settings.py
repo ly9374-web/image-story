@@ -47,6 +47,19 @@ def _set_if_empty(key: str, current_value: str, generated_value: str, placeholde
     return True
 
 
+def _append_if_missing(key: str, current_value: str, suffix: str) -> bool:
+    suffix_text = str(suffix or "").strip()
+    if not suffix_text:
+        return False
+
+    current_text = str(st.session_state.get(key, current_value) or "").strip()
+    if suffix_text in current_text:
+        return False
+
+    st.session_state[key] = "\n\n".join(part for part in [current_text, suffix_text] if part)
+    return True
+
+
 def _apply_generated_values(record_key: str, prompt_values: dict) -> tuple[int, int] | None:
     pending = st.session_state.get("agent_prompt_generated_values")
     if not isinstance(pending, dict) or pending.get("record_key") != record_key:
@@ -79,6 +92,17 @@ def _apply_generated_values(record_key: str, prompt_values: dict) -> tuple[int, 
         st.session_state[_field_key("default_story_brain", record_key)] = default_story_brain
         filled += 1
 
+    action_scheduler_prompt = prompt_values.get("action_scheduler_prompt", "")
+    relationship_rules = str(values.get("relationship_rules") or "").strip()
+    if _append_if_missing(
+        _field_key("action_scheduler_prompt", record_key),
+        action_scheduler_prompt,
+        relationship_rules,
+    ):
+        filled += 1
+    elif relationship_rules:
+        skipped += 1
+
     st.session_state.pop("agent_prompt_generated_values", None)
     return filled, skipped
 
@@ -105,6 +129,7 @@ def _render_generator_body(record_key: str):
 
     if close:
         st.session_state.agent_prompt_generator_open = False
+        st.session_state.pop("agent_prompt_generator_record_key", None)
         st.rerun()
 
     if not generate:
@@ -124,12 +149,10 @@ def _render_generator_body(record_key: str):
 
     st.session_state.agent_prompt_generated_values = {
         "record_key": record_key,
-        "values": {
-            **generated.to_form_values(),
-            "default_story_brain": str(story or "").strip(),
-        },
+        "values": generated.to_form_values(),
     }
     st.session_state.agent_prompt_generator_open = False
+    st.session_state.pop("agent_prompt_generator_record_key", None)
     st.rerun()
 
 
@@ -203,6 +226,8 @@ def render():
 
     selected_record = label_to_record.get(selected_label) if selected_label else None
     if selected_record is not None and selected_record.id != state.selected_record_id:
+        st.session_state.agent_prompt_generator_open = False
+        st.session_state.pop("agent_prompt_generator_record_key", None)
         state = agent_prompts.select_record(state, selected_record.id)
         st.rerun()
 
@@ -214,8 +239,12 @@ def render():
         with header_cols[1]:
             if st.button("自动生成prompt", use_container_width=True, disabled=is_guest):
                 st.session_state.agent_prompt_generator_open = True
+                st.session_state.agent_prompt_generator_record_key = record_key
 
-        if st.session_state.get("agent_prompt_generator_open"):
+        if (
+            st.session_state.get("agent_prompt_generator_open")
+            and st.session_state.get("agent_prompt_generator_record_key") == record_key
+        ):
             _render_generator_dialog(record_key)
 
         title_value = selected_record.title if selected_record else ""

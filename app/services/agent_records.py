@@ -45,9 +45,10 @@ class AgentChatRecord:
     temperature: float = 0.8
     evolution_rounds: int = 5
     player_route_history_turns: int = 3
-    npc_history_turns: int = 8
+    npc_history_turns: int = 5
     action_decision_history_turns: int = 3
     scene_history_turns: int = 3
+    story_brain_turns: int = 6
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -78,9 +79,10 @@ class AgentChatRecord:
             temperature=float(data.get("temperature", 0.8) or 0.8),
             evolution_rounds=int(data.get("evolution_rounds", 5) or 5),
             player_route_history_turns=_history_turn_value(data, "player_route_history_turns", "playerRouteHistoryTurns", 3),
-            npc_history_turns=_history_turn_value(data, "npc_history_turns", "npcHistoryTurns", 8),
+            npc_history_turns=_history_turn_value(data, "npc_history_turns", "npcHistoryTurns", 5),
             action_decision_history_turns=_history_turn_value(data, "action_decision_history_turns", "actionDecisionHistoryTurns", 3),
             scene_history_turns=_history_turn_value(data, "scene_history_turns", "sceneHistoryTurns", 3),
+            story_brain_turns=max(1, _history_turn_value(data, "story_brain_turns", "storyBrainTurns", 6)),
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -104,6 +106,7 @@ class AgentChatRecord:
             "npc_history_turns": self.npc_history_turns,
             "action_decision_history_turns": self.action_decision_history_turns,
             "scene_history_turns": self.scene_history_turns,
+            "story_brain_turns": self.story_brain_turns,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

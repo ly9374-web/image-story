@@ -21,9 +21,10 @@ class AgentContext:
     temperature: float
     evolution_rounds: int
     player_route_history_turns: int = 3
-    npc_history_turns: int = 8
+    npc_history_turns: int = 5
     action_decision_history_turns: int = 3
     scene_history_turns: int = 3
+    story_brain_turns: int = 6
 
 
 @dataclass
@@ -62,9 +63,10 @@ def load_context_from_settings() -> AgentContext:
         temperature=float(settings.float(AppStorageKeys.AGENT_TEMPERATURE, 0.8)),
         evolution_rounds=rounds,
         player_route_history_turns=max(0, settings.int(AppStorageKeys.AGENT_PLAYER_ROUTE_HISTORY_TURNS, 3)),
-        npc_history_turns=max(0, settings.int(AppStorageKeys.AGENT_NPC_HISTORY_TURNS, 8)),
+        npc_history_turns=max(0, settings.int(AppStorageKeys.AGENT_NPC_HISTORY_TURNS, 5)),
         action_decision_history_turns=max(0, settings.int(AppStorageKeys.AGENT_ACTION_DECISION_HISTORY_TURNS, 3)),
         scene_history_turns=max(0, settings.int(AppStorageKeys.AGENT_SCENE_HISTORY_TURNS, 3)),
+        story_brain_turns=max(1, settings.int(AppStorageKeys.AGENT_STORY_BRAIN_TURNS, 6)),
     )
 
 
@@ -74,9 +76,10 @@ def default_context() -> AgentContext:
         temperature=0.8,
         evolution_rounds=5,
         player_route_history_turns=3,
-        npc_history_turns=8,
+        npc_history_turns=5,
         action_decision_history_turns=3,
         scene_history_turns=3,
+        story_brain_turns=6,
     )
 
 
@@ -95,6 +98,7 @@ def save_context_to_settings(ctx: AgentContext):
     settings.set(AppStorageKeys.AGENT_NPC_HISTORY_TURNS, max(0, int(ctx.npc_history_turns)))
     settings.set(AppStorageKeys.AGENT_ACTION_DECISION_HISTORY_TURNS, max(0, int(ctx.action_decision_history_turns)))
     settings.set(AppStorageKeys.AGENT_SCENE_HISTORY_TURNS, max(0, int(ctx.scene_history_turns)))
+    settings.set(AppStorageKeys.AGENT_STORY_BRAIN_TURNS, max(1, int(ctx.story_brain_turns)))
 
 
 def _send_model(
@@ -366,19 +370,17 @@ def _prompt5_user_message(
 """
 
     return f"""
-你必须只输出严格合法 JSON，不要输出 Markdown、代码块或解释。
+你必须只输出严格合法 JSON，不要输出 Markdown、代码块或解释。next_npc输出NPC代号而不是NPC名字
+
 
 JSON 格式：
 {{
   "next_npc": "NPC1 | NPC2 | NPC3",
-  "what_just_happened": ""
+  "what_just_happened": "",
 }}
 
-规则：
-- next_npc 必须从另外两个 NPC 中选择一个，不能选择刚刚行动的 NPC。
-
 刚刚行动的 NPC：
-{npc_name}
+{npc_name or "玩家"}
 
 what_just_happened:
 {npc_output}
@@ -425,9 +427,17 @@ def _scene_user_message(
     story_brain: str,
     events: list,
     history_turns: int,
+    player_input: str = "",
     story_brain_enabled: bool = True,
 ) -> str:
     story_brain_section = ""
+    player_input_section = ""
+    if str(player_input or "").strip():
+        player_input_section = f"""
+玩家输入：
+{str(player_input or "").strip()}
+"""
+
     story_brain_rule = "不要决定角色行为，不要输出 JSON。"
     if story_brain_enabled:
         story_brain_rule = "不要决定角色行为，不要修改 Story Brain，不要输出 JSON。"
@@ -440,16 +450,17 @@ def _scene_user_message(
 请基于最近互动历史生成一段面向玩家的场景描述。
 {story_brain_rule}
 {story_brain_section}
+{player_input_section}
 
 最近互动历史：
 {_history_text(events, limit=history_turns) or "暂无"}
 """.strip()
 
 
-def _story_brain_generator_user_message(*, story_brain: str, events: list) -> str:
+def _story_brain_generator_user_message(*, story_brain: str, events: list, history_turns: int) -> str:
     return f"""
 过去的记录：
-{_history_text(events, limit=7) or "暂无"}
+{_history_text(events, limit=history_turns) or "暂无"}
 
 现有 Story Brain：
 {_story_brain_text(story_brain) or "暂无"}
@@ -489,9 +500,11 @@ def _generate_story_brain(
     completed_rounds: int,
     metadata: Optional[dict] = None,
 ) -> str:
+    history_turns = max(1, int(ctx.story_brain_turns))
     generator_user_message = _story_brain_generator_user_message(
         story_brain=story_brain,
         events=events,
+        history_turns=history_turns,
     )
     generator_raw = _send_model_with_debug(
         ctx=ctx,
@@ -501,7 +514,7 @@ def _generate_story_brain(
         user_message=generator_user_message,
         round_number=completed_rounds,
         metadata={
-            "history_turns": 7,
+            "history_turns": history_turns,
             **(metadata or {}),
         },
     )
@@ -521,6 +534,7 @@ def iter_agent_evolution(
 ) -> Iterator[AgentRunProgress]:
     original_story_brain = _story_brain_text(story_brain)
     story_brain = original_story_brain if story_brain_enabled else ""
+    story_brain_turns = max(1, int(ctx.story_brain_turns))
     previous_events = list(events or [])
     new_events = list(previous_events)
     debug_logs: list = []
@@ -560,6 +574,59 @@ def iter_agent_evolution(
             debug_logs=list(debug_logs),
         )
 
+        yield AgentRunProgress(
+            phase="status",
+            message="正在生成场景描述...",
+            story_brain=story_brain,
+            events=list(new_events),
+            completed_rounds=completed_rounds,
+            stopped_early=stopped_early,
+            debug_logs=list(debug_logs),
+        )
+        initial_scene_user_message = _scene_user_message(
+            story_brain=story_brain,
+            events=previous_events,
+            history_turns=ctx.scene_history_turns,
+            player_input=player_input,
+            story_brain_enabled=story_brain_enabled,
+        )
+        initial_scene_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
+        initial_scene_story_brain_before = story_brain
+        initial_scene_text = _send_model_with_debug(
+            ctx=ctx,
+            debug_logs=debug_logs,
+            label="场景描述器",
+            system_prompt=prompt_record.scene_descriptor_prompt,
+            user_message=initial_scene_user_message,
+            round_number=0,
+            metadata={
+                "player_input": player_input,
+                "story_brain_enabled": story_brain_enabled,
+                "trigger": "player_input",
+            },
+        ).strip()
+        if not initial_scene_text:
+            raise ValueError("场景描述器没有产生有效输出。")
+
+        initial_scene_meta = {
+            "round": 0,
+            "debug_log_start_index": initial_scene_debug_log_start_index,
+        }
+        if story_brain_enabled:
+            initial_scene_meta["story_brain_before"] = initial_scene_story_brain_before
+        initial_scene_event = _event("scene", initial_scene_text, speaker="场景", meta=initial_scene_meta)
+        new_events.append(initial_scene_event)
+        yield AgentRunProgress(
+            phase="event",
+            message="场景描述完成。",
+            event=initial_scene_event,
+            story_brain=story_brain,
+            events=list(new_events),
+            completed_rounds=completed_rounds,
+            stopped_early=stopped_early,
+            debug_logs=list(debug_logs),
+        )
+
         if story_brain_enabled and not previous_events:
             yield AgentRunProgress(
                 phase="status",
@@ -582,41 +649,80 @@ def iter_agent_evolution(
 
         yield AgentRunProgress(
             phase="status",
-            message="正在解析玩家输入...",
+            message="正在裁决并选择首位角色...",
             story_brain=story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
             stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
-        parser_user_message = _prompt4_user_message(
-            player_input=player_input,
+        initial_scheduler_user_message = _prompt5_user_message(
+            npc_name="玩家",
+            npc_output=initial_scene_text,
             story_brain=story_brain,
             events=previous_events,
-            history_turns=ctx.player_route_history_turns,
+            acted_npcs=[],
+            history_turns=ctx.action_decision_history_turns,
             story_brain_enabled=story_brain_enabled,
         )
-        parser_raw = _send_model_with_debug(
+        initial_scheduler_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
+        initial_scheduler_story_brain_before = story_brain
+        initial_scheduler_raw = _send_model_with_debug(
             ctx=ctx,
             debug_logs=debug_logs,
-            label="玩家路由",
-            system_prompt=prompt_record.player_parser_prompt,
-            user_message=parser_user_message,
+            label="行动裁决",
+            system_prompt=prompt_record.action_scheduler_prompt,
+            user_message=initial_scheduler_user_message,
             round_number=0,
             metadata={
                 "player_input": player_input,
+                "npc": "玩家",
+                "acted_npcs": [],
+                "trigger": "initial_scene",
                 "story_brain_enabled": story_brain_enabled,
             },
         )
-        parser_data = _parse_json_object(parser_raw, label="玩家路由")
+        initial_scheduler_data = _parse_json_object(initial_scheduler_raw, label="行动裁决")
 
-        current_npc = _npc_name(parser_data.get("first_npc"))
+        if bool(initial_scheduler_data.get("stop_evolution")):
+            stopped_early = True
+            reason = str(initial_scheduler_data.get("stop_reason") or "NPC 已不在同一场景，自动演化提前停止。").strip()
+            stop_meta = {
+                "round": 0,
+                "debug_log_start_index": initial_scheduler_debug_log_start_index,
+            }
+            if story_brain_enabled:
+                stop_meta["story_brain_before"] = initial_scheduler_story_brain_before
+            stop_event = _event("system", reason, speaker="系统", meta=stop_meta)
+            new_events.append(stop_event)
+            yield AgentRunProgress(
+                phase="event",
+                message="自动演化提前停止。",
+                event=stop_event,
+                story_brain=story_brain,
+                events=list(new_events),
+                completed_rounds=completed_rounds,
+                stopped_early=stopped_early,
+                debug_logs=list(debug_logs),
+            )
+            yield AgentRunProgress(
+                phase="complete",
+                message="Agent 自动演化完成。",
+                story_brain=story_brain if story_brain_enabled else original_story_brain,
+                events=new_events,
+                completed_rounds=completed_rounds,
+                stopped_early=stopped_early,
+                debug_logs=debug_logs,
+            )
+            return
+
+        current_npc = _npc_name(initial_scheduler_data.get("next_npc"))
         if not current_npc:
-            raise ValueError("玩家路由必须返回 first_npc，且值必须是 NPC1、NPC2 或 NPC3。")
+            raise ValueError("行动裁决必须返回 next_npc，且值必须是 NPC1、NPC2 或 NPC3。")
         what_just_happened = (
-            str(parser_data.get("next_instruction") or "").strip()
-            or str(parser_data.get("npc_instruction") or "").strip()
-            or "根据玩家输入和当前局势作出一次有效行为。"
+            str(initial_scheduler_data.get("what_just_happened") or "").strip()
+            or str(initial_scheduler_data.get("next_instruction") or "").strip()
+            or initial_scene_text
         )
 
         acted_npcs: List[str] = []
@@ -679,7 +785,7 @@ def iter_agent_evolution(
                 debug_logs=list(debug_logs),
             )
 
-            if story_brain_enabled and completed_rounds % 6 == 0:
+            if story_brain_enabled and completed_rounds % story_brain_turns == 0:
                 yield AgentRunProgress(
                     phase="status",
                     message=f"第 {completed_rounds} 轮：正在更新 Story Brain...",
@@ -755,7 +861,7 @@ def iter_agent_evolution(
                 scene_text = _send_model_with_debug(
                     ctx=ctx,
                     debug_logs=debug_logs,
-                    label="Prompt6 场景描述器",
+                    label="场景描述器",
                     system_prompt=prompt_record.scene_descriptor_prompt,
                     user_message=scene_user_message,
                     round_number=completed_rounds,
@@ -810,8 +916,6 @@ def iter_agent_evolution(
             next_npc = _npc_name(scheduler_data.get("next_npc"))
             if not next_npc:
                 raise ValueError("行动裁决必须返回 next_npc，且值必须是 NPC1、NPC2 或 NPC3。")
-            if next_npc == current_npc:
-                raise ValueError("行动裁决返回的 next_npc 不能等于刚刚行动的 NPC。")
             current_npc = next_npc
             what_just_happened = (
                 str(scheduler_data.get("what_just_happened") or "").strip()

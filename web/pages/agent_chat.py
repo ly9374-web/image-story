@@ -26,6 +26,7 @@ def _sync_context_widgets_from_ctx(ctx):
     st.session_state.agent_npc_history_turns_input = int(ctx.npc_history_turns)
     st.session_state.agent_action_decision_history_turns_input = int(ctx.action_decision_history_turns)
     st.session_state.agent_scene_history_turns_input = int(ctx.scene_history_turns)
+    st.session_state.agent_story_brain_turns_input = int(ctx.story_brain_turns)
     st.session_state.agent_selected_chat_model_input = str(ctx.selected_chat_model or "grok1")
     st.session_state.agent_temperature_input = float(ctx.temperature)
 
@@ -37,6 +38,7 @@ def _ensure_context_widget_state(ctx):
         "agent_npc_history_turns_input": int(ctx.npc_history_turns),
         "agent_action_decision_history_turns_input": int(ctx.action_decision_history_turns),
         "agent_scene_history_turns_input": int(ctx.scene_history_turns),
+        "agent_story_brain_turns_input": int(ctx.story_brain_turns),
         "agent_selected_chat_model_input": str(ctx.selected_chat_model or "grok1"),
         "agent_temperature_input": float(ctx.temperature),
     }
@@ -66,8 +68,15 @@ def _ensure_state():
     st.session_state.setdefault("agent_video_prompt", "动起来")
     st.session_state.setdefault("agent_url_hidden_space", False)
     st.session_state.setdefault("agent_story_brain_enabled", False)
+    st.session_state.setdefault("agent_story_brain_editor_nonce", 0)
     st.session_state.setdefault("agent_last_error", "")
     st.session_state.setdefault("agent_last_save_notice", "")
+
+
+def _refresh_story_brain_editor():
+    st.session_state.agent_story_brain_editor_nonce = int(
+        st.session_state.get("agent_story_brain_editor_nonce", 0) or 0
+    ) + 1
 
 
 def _current_story_brain() -> str:
@@ -113,6 +122,7 @@ def _load_record_from_nav_if_needed():
     st.session_state.agent_loaded_record_id = record.id
     st.session_state.agent_events = list(record.events or [])
     st.session_state.agent_story_brain = agent_records.story_brain_to_text(record.story_brain)
+    _refresh_story_brain_editor()
     st.session_state.agent_generated_media = list(record.generated_media or [])
     st.session_state.agent_debug_logs = list(getattr(record, "debug_logs", []) or [])
     st.session_state.agent_selected_media_id = ""
@@ -128,6 +138,7 @@ def _load_record_from_nav_if_needed():
     ctx.npc_history_turns = int(getattr(record, "npc_history_turns", ctx.npc_history_turns))
     ctx.action_decision_history_turns = int(getattr(record, "action_decision_history_turns", ctx.action_decision_history_turns))
     ctx.scene_history_turns = int(getattr(record, "scene_history_turns", ctx.scene_history_turns))
+    ctx.story_brain_turns = int(getattr(record, "story_brain_turns", ctx.story_brain_turns))
     agent_service.save_context_to_settings(ctx)
     _sync_context_widgets_from_ctx(ctx)
 
@@ -251,6 +262,8 @@ def _select_prompt_record():
     chosen_record = records[options.index(chosen_title)]
     if chosen_record.id != state.selected_record_id:
         state = agent_prompts.select_record(state, chosen_record.id)
+        _apply_prompt_default_story_brain(chosen_record)
+        st.rerun()
     return state, chosen_record
 
 
@@ -270,6 +283,7 @@ def _build_record(prompt_record, ctx) -> agent_records.AgentChatRecord:
     record.npc_history_turns = int(ctx.npc_history_turns)
     record.action_decision_history_turns = int(ctx.action_decision_history_turns)
     record.scene_history_turns = int(ctx.scene_history_turns)
+    record.story_brain_turns = int(ctx.story_brain_turns)
     record.title = agent_records.build_record_title(record.events)
     return record
 
@@ -291,8 +305,16 @@ def _apply_default_story_brain_if_new(prompt_record):
         return
     if str(st.session_state.get("agent_story_brain", "") or "").strip():
         return
+    _apply_prompt_default_story_brain(prompt_record)
+
+
+def _apply_prompt_default_story_brain(prompt_record):
+    default_story_brain = agent_records.story_brain_to_text(
+        getattr(prompt_record, "default_story_brain", "") if prompt_record is not None else ""
+    )
     st.session_state.agent_story_brain = default_story_brain
-    st.session_state.agent_story_brain_enabled = True
+    st.session_state.agent_story_brain_enabled = bool(default_story_brain.strip())
+    _refresh_story_brain_editor()
 
 
 def start_new_conversation(reset_settings: bool = False):
@@ -318,24 +340,14 @@ def start_new_conversation(reset_settings: bool = False):
     _apply_default_story_brain_if_new(_active_prompt_record())
 
 
-def _undo_last_model_reply():
+def _undo_last_visible_event():
     events = list(st.session_state.get("agent_events") or [])
     if not events:
         return False
 
-    last_model_index = None
-    for index in range(len(events) - 1, -1, -1):
-        event = events[index]
-        if isinstance(event, dict) and str(event.get("kind", "") or "") != "player":
-            last_model_index = index
-            break
-
-    if last_model_index is None:
-        return False
-
-    model_event = events[last_model_index]
-    if isinstance(model_event, dict):
-        meta = model_event.get("meta")
+    last_event = events[-1]
+    if isinstance(last_event, dict):
+        meta = last_event.get("meta")
         if isinstance(meta, dict) and "story_brain_before" in meta:
             st.session_state.agent_story_brain = agent_records.story_brain_to_text(
                 meta.get("story_brain_before")
@@ -345,7 +357,7 @@ def _undo_last_model_reply():
                 st.session_state.get("agent_debug_logs") or []
             )[: meta.get("debug_log_start_index")]
 
-    st.session_state.agent_events = events[:last_model_index] + events[last_model_index + 1 :]
+    st.session_state.agent_events = events[:-1]
     st.session_state.agent_last_error = ""
     return True
 
@@ -353,7 +365,7 @@ def _undo_last_model_reply():
 def _render_story_brain_text_editor(value: str) -> str:
     result = _story_brain_text_editor_component(
         value=str(value or ""),
-        key="agent_story_brain_text_editor_component",
+        key=f"agent_story_brain_text_editor_component_{int(st.session_state.get('agent_story_brain_editor_nonce', 0) or 0)}",
         default=None,
     )
     if isinstance(result, str):
@@ -428,6 +440,12 @@ def render_sidebar_context():
             step=1,
             key="agent_scene_history_turns_input",
         )
+        story_brain_turns = st.number_input(
+            "Story Brain 更新间隔/带入轮数",
+            min_value=1,
+            step=1,
+            key="agent_story_brain_turns_input",
+        )
         model = st.selectbox(
             "聊天模型",
             options=["grok1", "grok2", "deepseek"],
@@ -447,6 +465,7 @@ def render_sidebar_context():
         ctx.npc_history_turns = int(npc_history_turns)
         ctx.action_decision_history_turns = int(action_decision_history_turns)
         ctx.scene_history_turns = int(scene_history_turns)
+        ctx.story_brain_turns = int(story_brain_turns)
         agent_service.save_context_to_settings(ctx)
 
         page2_ctx = page2_service.load_context_from_settings()
@@ -463,7 +482,7 @@ def render_sidebar_context():
         st.divider()
         st.subheader("对话")
         if st.button("撤销", use_container_width=True, disabled=not bool(st.session_state.get("agent_events"))):
-            if _undo_last_model_reply():
+            if _undo_last_visible_event():
                 if str(st.session_state.get("agent_record_id", "") or ""):
                     _save_current_record(prompt_record, ctx)
                 st.rerun()

@@ -21,20 +21,55 @@ PROMPT_FIELDS = [
 ]
 
 
+GENERATED_NPC_PROMPT_PREFIX = "你的任务是扮演以下角色，以第三人称视角输出你对what_just_happened的反应"
+GENERATED_NPC_PROMPT_SUFFIX = "额外要求：根据最近的互动历史中你说话和行为的历史，让你的说话风格和行为多样化一点，不要重复说出与之前类似的话和重复做同样的行为。偶尔作出出人意料的行为和说出出人意料的话。中文回复"
+
+
+def _wrap_generated_npc_prompt(prompt: str) -> str:
+    body = str(prompt or "").strip()
+    prefix_variants = [
+        GENERATED_NPC_PROMPT_PREFIX,
+        f"“{GENERATED_NPC_PROMPT_PREFIX}”",
+        f"{GENERATED_NPC_PROMPT_PREFIX}。",
+        f"{GENERATED_NPC_PROMPT_PREFIX}。 ",
+    ]
+    suffix_variants = [
+        GENERATED_NPC_PROMPT_SUFFIX,
+        f"“{GENERATED_NPC_PROMPT_SUFFIX}”",
+        f"{GENERATED_NPC_PROMPT_SUFFIX}。",
+        f"{GENERATED_NPC_PROMPT_SUFFIX}。 ",
+    ]
+
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefix_variants:
+            if body.startswith(prefix):
+                body = body[len(prefix) :].strip()
+                changed = True
+        for suffix in suffix_variants:
+            if body.endswith(suffix):
+                body = body[: -len(suffix)].strip()
+                changed = True
+
+    return "\n\n".join(part for part in [GENERATED_NPC_PROMPT_PREFIX, body, GENERATED_NPC_PROMPT_SUFFIX] if part)
+
+
 DEFAULT_PLAYER_ROUTE_PROMPT = """结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc回复输出在"first_npc"中
 理解用户的输入并且给你决定应该会出的NPC行动指导，输出在next_instruction部分"""
 
 
-DEFAULT_ACTION_DECISION_PROMPT = """next_instruction部分原样输出 刚刚的 NPC 输出：
+DEFAULT_ACTION_DECISION_PROMPT = """what_just_happened的部分原样输出 what_just_happened
 
-结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc对上轮的内容进行反应，或者谁应该作出下一个行为（说话或不说话都可以）反应可以是在"next_npc"中. """
+结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc对what_just_happened进行反应，或者谁应该作出下一个行为（说话或不说话都可以）的npc在"next_npc"中. 你还需要根据“未来剧情发展”判断是否停止自动演化，输出在"stop_evolution"中。
+停止判断规则：
+- 仅当“未来剧情发展”为“空”时，stop_evolution 才能为 true。其他所有情况（包括“未来剧情发展”字段缺失）stop_evolution 都必须为 false。stop_evolution为“true”时next_npc可以留空，stop_reason 简短说明所有未来剧情发展已完成。"""
 
 
 DEFAULT_SCENE_DESCRIPTOR_PROMPT = """你是场景描述器。
 你只负责描述，不决定角色行为，不修改 Story Brain，不输出 JSON。
 
-你需要做的内容包括，根据输入，从第三人称描述场景，还有根据指导输出包括场景中除主要角色以外其他人的行为和反应
-
+你需要做的内容包括，根据输入，从第三人称描述场景，其中要包含上一轮角色的语言和行为（也就是输出要包含最近互动历史最后一个npc+玩家输入的语言和行为），还要输出包括场景中除主要角色以外其他人的行为和反应（如果场景中有其他角色存在并且你认为应该有反应时。若无反应则在输出中提到其他人没注意到或者没反应）。
 规则：
 - 不要揭露玩家或 NPC 不该知道的秘密。
 - 不要让角色做新动作。
@@ -43,7 +78,7 @@ DEFAULT_SCENE_DESCRIPTOR_PROMPT = """你是场景描述器。
 """
 
 
-DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多x轮的记录和我现成的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题、Markdown代码块或JSON。"""
+DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多x轮的记录和我现成的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题、Markdown代码块或JSON。“未来剧情发展“部分下的情节完成一个删除一个，当全部完成时 未来剧情发展显示为“空”（例：未来剧情发展：空）"""
 
 
 @dataclass
@@ -65,20 +100,21 @@ class GeneratedAgentPrompt:
     npc3_name: str
     npc3_prompt: str
     relationship_rules: str
+    default_story_brain: str
     raw_text: str
 
     def to_form_values(self) -> dict:
-        npc3_parts = [
-            str(self.npc3_prompt or "").strip(),
-            str(self.relationship_rules or "").strip(),
-        ]
+        npc3_prompt = str(self.npc3_prompt or "").strip()
+        relationship_rules = str(self.relationship_rules or "").strip()
         return {
             "npc1_name": str(self.npc1_name or "").strip(),
-            "npc1_prompt": str(self.npc1_prompt or "").strip(),
+            "npc1_prompt": _wrap_generated_npc_prompt(self.npc1_prompt),
             "npc2_name": str(self.npc2_name or "").strip(),
-            "npc2_prompt": str(self.npc2_prompt or "").strip(),
+            "npc2_prompt": _wrap_generated_npc_prompt(self.npc2_prompt),
             "npc3_name": str(self.npc3_name or "").strip(),
-            "npc3_prompt": "\n\n".join(part for part in npc3_parts if part),
+            "npc3_prompt": _wrap_generated_npc_prompt(npc3_prompt),
+            "relationship_rules": relationship_rules,
+            "default_story_brain": str(self.default_story_brain or "").strip(),
         }
 
 
@@ -157,16 +193,16 @@ def generate_prompt_from_story(story_description: str, model: str) -> GeneratedA
 
 要求：
 1. 只输出一个合法 JSON 对象，不要输出 Markdown、解释或代码块。
-2. JSON 必须包含以下 7 个字符串字段：
-   npc1_name, npc1_prompt, npc2_name, npc2_prompt, npc3_name, npc3_prompt, relationship_rules
-3. 每个 NPC prompt 要包含：身份、性格、说话方式、外形、行为风格、与玩家/其他 NPC 的互动方式。每个npc的prompt需要至少超过330字，可以在包含用户输入信息的基础上再自行丰富细节。
+2. JSON 必须包含以下 8 个字符串字段：
+   npc1_name, npc1_prompt, npc2_name, npc2_prompt, npc3_name, npc3_prompt, relationship_rules, default_story_brain
+3. 每个 NPC prompt 要包含：身份、性格、外形、其他 NPC 的关系(每个分类后面换个行)。每个npc的prompt需要至少超过400字，可以在包含用户输入信息的基础上再在“身份、性格、外形、其他 NPC 的关系”几个类别中自行拓展人设。禁止在prompt中使用“npc”而是以对应的姓名指代。
 4. prompt 要适合放进系统提示词，让该 NPC 在故事中稳定扮演角色。
-5. relationship_rules 必须严格使用下面模板，并根据故事填写每一项：
+5. relationship_rules 必须严格使用下面模板（将npc1/2/3换成相应的名字），并根据故事填写每一项：
 当npc们的关系为：
-调用npc1的时候为：
-调用npc2的时候为：
-调用npc3的时候为：
-6. 不要把 relationship_rules 分散写进 npc1_prompt 或 npc2_prompt；最终它会被追加到 npc3_prompt 末尾。
+除正常情况外npc1会有额外反应的时机为：
+除正常情况外npc2会有额外反应的时机为：
+除正常情况外npc3会有额外反应的时机：
+6. 生成 story brain 的背景故事，填写到 default_story_brain 字段，也就是界面里的“默认story brain”。default_story_brain 必须基于用户故事设想整理出 400 字以上的中文背景故事，包含世界观、主要角色关系、当前剧情状态、已知事实；不要把这段内容写进 NPC prompt 或 relationship_rules。default_story_brain 的结尾必须另起一行，只写“故事中所有角色超过22岁（永久保持此条字段）未来剧情发展：”。
 """.strip()
 
     user_message = "故事设想：\n" + story_description
@@ -196,6 +232,7 @@ def generate_prompt_from_story(story_description: str, model: str) -> GeneratedA
             npc3_name=_require_generated_text(data, "npc3_name"),
             npc3_prompt=_require_generated_text(data, "npc3_prompt"),
             relationship_rules=_require_generated_text(data, "relationship_rules"),
+            default_story_brain=_require_generated_text(data, "default_story_brain"),
             raw_text=str(raw_text or ""),
         )
     except ValueError as exc:
