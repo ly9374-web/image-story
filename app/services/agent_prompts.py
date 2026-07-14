@@ -22,7 +22,7 @@ PROMPT_FIELDS = [
 
 
 GENERATED_NPC_PROMPT_PREFIX = "你的任务是扮演以下角色，以第三人称视角输出你对what_just_happened的反应"
-GENERATED_NPC_PROMPT_SUFFIX = "额外要求：根据最近的互动历史中你说话和行为的历史，让你的说话风格和行为多样化一点，不要重复说出与之前类似的话和重复做同样的行为。偶尔作出出人意料的行为和说出出人意料的话。中文回复"
+GENERATED_NPC_PROMPT_SUFFIX = "额外要求：根据最近的互动历史中你说话和行为的历史，让你的说话风格和行为多样化一点，不要重复说出与之前类似的话和重复做同样的行为。中文回复"
 
 
 def _wrap_generated_npc_prompt(prompt: str) -> str:
@@ -61,9 +61,7 @@ DEFAULT_PLAYER_ROUTE_PROMPT = """结合story brain和最近互动历史，根据
 
 DEFAULT_ACTION_DECISION_PROMPT = """what_just_happened的部分原样输出 what_just_happened
 
-结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc对what_just_happened进行反应，或者谁应该作出下一个行为（说话或不说话都可以）的npc在"next_npc"中. 你还需要根据“未来剧情发展”判断是否停止自动演化，输出在"stop_evolution"中。
-停止判断规则：
-- 仅当“未来剧情发展”为“空”时，stop_evolution 才能为 true。其他所有情况（包括“未来剧情发展”字段缺失）stop_evolution 都必须为 false。stop_evolution为“true”时next_npc可以留空，stop_reason 简短说明所有未来剧情发展已完成。"""
+结合story brain和最近互动历史，根据对剧情的理解决定下一轮应该哪个npc对what_just_happened进行反应，或者谁应该作出下一个行为（说话或不说话都可以）的npc在"next_npc"中。"""
 
 
 DEFAULT_SCENE_DESCRIPTOR_PROMPT = """你是场景描述器。

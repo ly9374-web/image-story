@@ -32,7 +32,6 @@ class AgentRunResult:
     story_brain: str
     events: list
     completed_rounds: int
-    stopped_early: bool
     error: str = ""
     debug_logs: list = None
 
@@ -45,7 +44,6 @@ class AgentRunProgress:
     story_brain: str = ""
     events: list = None
     completed_rounds: int = 0
-    stopped_early: bool = False
     error: str = ""
     debug_logs: list = None
 
@@ -376,7 +374,7 @@ def _prompt5_user_message(
 JSON 格式：
 {{
   "next_npc": "NPC1 | NPC2 | NPC3",
-  "what_just_happened": "",
+  "what_just_happened": ""
 }}
 
 刚刚行动的 NPC：
@@ -540,14 +538,12 @@ def iter_agent_evolution(
     debug_logs: list = []
     player_input = str(player_input or "").strip()
     completed_rounds = 0
-    stopped_early = False
     if not player_input:
         yield AgentRunProgress(
             phase="complete",
             story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=0,
-            stopped_early=False,
             debug_logs=debug_logs,
         )
         return
@@ -570,7 +566,6 @@ def iter_agent_evolution(
             story_brain=story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
 
@@ -580,7 +575,6 @@ def iter_agent_evolution(
             story_brain=story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
         initial_scene_user_message = _scene_user_message(
@@ -623,7 +617,6 @@ def iter_agent_evolution(
             story_brain=story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
 
@@ -634,7 +627,6 @@ def iter_agent_evolution(
                 story_brain=story_brain,
                 events=list(new_events),
                 completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
                 debug_logs=list(debug_logs),
             )
             story_brain = _generate_story_brain(
@@ -653,7 +645,6 @@ def iter_agent_evolution(
             story_brain=story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             debug_logs=list(debug_logs),
         )
         initial_scheduler_user_message = _prompt5_user_message(
@@ -665,8 +656,6 @@ def iter_agent_evolution(
             history_turns=ctx.action_decision_history_turns,
             story_brain_enabled=story_brain_enabled,
         )
-        initial_scheduler_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
-        initial_scheduler_story_brain_before = story_brain
         initial_scheduler_raw = _send_model_with_debug(
             ctx=ctx,
             debug_logs=debug_logs,
@@ -683,38 +672,6 @@ def iter_agent_evolution(
             },
         )
         initial_scheduler_data = _parse_json_object(initial_scheduler_raw, label="行动裁决")
-
-        if bool(initial_scheduler_data.get("stop_evolution")):
-            stopped_early = True
-            reason = str(initial_scheduler_data.get("stop_reason") or "NPC 已不在同一场景，自动演化提前停止。").strip()
-            stop_meta = {
-                "round": 0,
-                "debug_log_start_index": initial_scheduler_debug_log_start_index,
-            }
-            if story_brain_enabled:
-                stop_meta["story_brain_before"] = initial_scheduler_story_brain_before
-            stop_event = _event("system", reason, speaker="系统", meta=stop_meta)
-            new_events.append(stop_event)
-            yield AgentRunProgress(
-                phase="event",
-                message="自动演化提前停止。",
-                event=stop_event,
-                story_brain=story_brain,
-                events=list(new_events),
-                completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
-                debug_logs=list(debug_logs),
-            )
-            yield AgentRunProgress(
-                phase="complete",
-                message="Agent 自动演化完成。",
-                story_brain=story_brain if story_brain_enabled else original_story_brain,
-                events=new_events,
-                completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
-                debug_logs=debug_logs,
-            )
-            return
 
         current_npc = _npc_name(initial_scheduler_data.get("next_npc"))
         if not current_npc:
@@ -735,7 +692,6 @@ def iter_agent_evolution(
                 story_brain=story_brain,
                 events=list(new_events),
                 completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
                 debug_logs=list(debug_logs),
             )
             npc_user_message = _npc_user_message(
@@ -781,7 +737,6 @@ def iter_agent_evolution(
                 story_brain=story_brain,
                 events=list(new_events),
                 completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
                 debug_logs=list(debug_logs),
             )
 
@@ -792,7 +747,6 @@ def iter_agent_evolution(
                     story_brain=story_brain,
                     events=list(new_events),
                     completed_rounds=completed_rounds,
-                    stopped_early=stopped_early,
                     debug_logs=list(debug_logs),
                 )
                 story_brain = _generate_story_brain(
@@ -811,7 +765,6 @@ def iter_agent_evolution(
                 story_brain=story_brain,
                 events=list(new_events),
                 completed_rounds=completed_rounds,
-                stopped_early=stopped_early,
                 debug_logs=list(debug_logs),
             )
             scheduler_user_message = _prompt5_user_message(
@@ -823,8 +776,6 @@ def iter_agent_evolution(
                 history_turns=ctx.action_decision_history_turns,
                 story_brain_enabled=story_brain_enabled,
             )
-            scheduler_debug_log_start_index = _absolute_debug_log_index(debug_log_start_index, debug_logs)
-            scheduler_story_brain_before = story_brain
             scheduler_raw = _send_model_with_debug(
                 ctx=ctx,
                 debug_logs=debug_logs,
@@ -847,7 +798,6 @@ def iter_agent_evolution(
                     story_brain=story_brain,
                     events=list(new_events),
                     completed_rounds=completed_rounds,
-                    stopped_early=stopped_early,
                     debug_logs=list(debug_logs),
                 )
                 scene_user_message = _scene_user_message(
@@ -883,32 +833,8 @@ def iter_agent_evolution(
                         story_brain=story_brain,
                         events=list(new_events),
                         completed_rounds=completed_rounds,
-                        stopped_early=stopped_early,
                         debug_logs=list(debug_logs),
                     )
-
-            if bool(scheduler_data.get("stop_evolution")):
-                stopped_early = True
-                reason = str(scheduler_data.get("stop_reason") or "NPC 已不在同一场景，自动演化提前停止。").strip()
-                stop_meta = {
-                    "round": completed_rounds,
-                    "debug_log_start_index": scheduler_debug_log_start_index,
-                }
-                if story_brain_enabled:
-                    stop_meta["story_brain_before"] = scheduler_story_brain_before
-                stop_event = _event("system", reason, speaker="系统", meta=stop_meta)
-                new_events.append(stop_event)
-                yield AgentRunProgress(
-                    phase="event",
-                    message="自动演化提前停止。",
-                    event=stop_event,
-                    story_brain=story_brain,
-                    events=list(new_events),
-                    completed_rounds=completed_rounds,
-                    stopped_early=stopped_early,
-                    debug_logs=list(debug_logs),
-                )
-                break
 
             if completed_rounds >= ctx.evolution_rounds:
                 break
@@ -929,7 +855,6 @@ def iter_agent_evolution(
             story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             debug_logs=debug_logs,
         )
     except Exception as exc:
@@ -943,7 +868,6 @@ def iter_agent_evolution(
             story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=list(new_events),
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             error=message,
             debug_logs=list(debug_logs),
         )
@@ -953,7 +877,6 @@ def iter_agent_evolution(
             story_brain=story_brain if story_brain_enabled else original_story_brain,
             events=new_events,
             completed_rounds=completed_rounds,
-            stopped_early=stopped_early,
             error=message,
             debug_logs=debug_logs,
         )
@@ -987,7 +910,6 @@ def run_agent_evolution(
             story_brain=_story_brain_text(story_brain),
             events=list(events or []),
             completed_rounds=0,
-            stopped_early=False,
             debug_logs=[],
         )
 
@@ -995,7 +917,6 @@ def run_agent_evolution(
         story_brain=final_progress.story_brain,
         events=final_progress.events,
         completed_rounds=final_progress.completed_rounds,
-        stopped_early=final_progress.stopped_early,
         error=final_progress.error,
         debug_logs=final_progress.debug_logs,
     )

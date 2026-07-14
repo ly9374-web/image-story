@@ -573,7 +573,6 @@ def _render_chat_column(prompt_record, ctx):
                     story_brain=final_progress.story_brain,
                     events=final_progress.events,
                     completed_rounds=final_progress.completed_rounds,
-                    stopped_early=final_progress.stopped_early,
                     error=final_progress.error,
                     debug_logs=final_progress.debug_logs,
                 )
