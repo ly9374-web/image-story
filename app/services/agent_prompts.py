@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 
 from app.api.chat_clients import DeepSeekAPIClient, GrokAPIClient
 from app.config import AppStorageKeys, settings
 from app.models import AgentPromptRecord, now_iso
 from app.services import hidden_space
+
+
+DEFAULT_AGENT_PROMPT_FILE = Path(__file__).resolve().parents[1] / "default_prompts" / "agent_prompt.json"
 
 
 PROMPT_FIELDS = [
@@ -251,6 +255,47 @@ def _persist(state: AgentPromptState):
     settings.set(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, str(state.selected_record_id or ""))
 
 
+def _load_default_records() -> tuple[List[AgentPromptRecord], str]:
+    try:
+        data = json.loads(DEFAULT_AGENT_PROMPT_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return [], ""
+
+    if isinstance(data, list):
+        items = data
+        selected_title = ""
+    elif isinstance(data, dict):
+        items = data.get("records") or []
+        selected_title = str(data.get("selected_title", "") or "").strip()
+    else:
+        return [], ""
+
+    records = [
+        AgentPromptRecord.from_dict(item)
+        for item in items
+        if isinstance(item, dict)
+    ]
+    return records, selected_title
+
+
+def _seed_default_records(state: AgentPromptState) -> AgentPromptState:
+    records, selected_title = _load_default_records()
+    if not records:
+        return state
+
+    state.records = records
+    state.next_index = max(state.next_index, len(records) + 1)
+
+    selected_record = None
+    if selected_title:
+        selected_record = next((record for record in records if record.title == selected_title), None)
+    selected_record = selected_record or records[0]
+
+    state.selected_record_id = selected_record.id
+    _persist(state)
+    return state
+
+
 def load_state(hidden_space: bool = False) -> AgentPromptState:
     records = _decode_records(settings.get(AppStorageKeys.AGENT_PROMPT_RECORDS, ""))
     hidden_records = _decode_records(settings.get(AppStorageKeys.HIDDEN_AGENT_PROMPT_RECORDS, ""))
@@ -262,7 +307,7 @@ def load_state(hidden_space: bool = False) -> AgentPromptState:
         selected_record_id = ""
         settings.set(AppStorageKeys.SELECTED_AGENT_PROMPT_RECORD_ID, "")
 
-    return AgentPromptState(
+    state = AgentPromptState(
         hidden_space=bool(hidden_space),
         records=records,
         hidden_records=hidden_records,
@@ -270,6 +315,11 @@ def load_state(hidden_space: bool = False) -> AgentPromptState:
         hidden_next_index=hidden_next_index,
         selected_record_id=selected_record_id,
     )
+
+    if not state.records:
+        state = _seed_default_records(state)
+
+    return state
 
 
 def visible_records(state: AgentPromptState) -> List[AgentPromptRecord]:

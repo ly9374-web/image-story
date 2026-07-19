@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from app.config import AppStorageKeys, settings
 from app.models import SystemPromptRecord, now_iso
 from app.services import hidden_space
+
+
+DEFAULT_SYSTEM_PROMPT_FILE = Path(__file__).resolve().parents[1] / "default_prompts" / "system_prompt.json"
 
 
 @dataclass
@@ -50,6 +54,49 @@ def _persist(state: PromptState):
     settings.set(AppStorageKeys.HIDDEN_SYSTEM_PROMPT_RECORD_NEXT_INDEX, int(state.hidden_next_index))
 
 
+def _load_default_records() -> tuple[list[SystemPromptRecord], str]:
+    try:
+        data = json.loads(DEFAULT_SYSTEM_PROMPT_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return [], ""
+
+    if isinstance(data, list):
+        items = data
+        selected_title = ""
+    elif isinstance(data, dict):
+        items = data.get("records") or []
+        selected_title = str(data.get("selected_title", "") or "").strip()
+    else:
+        return [], ""
+
+    records = [
+        SystemPromptRecord.from_dict(item)
+        for item in items
+        if isinstance(item, dict)
+    ]
+    return records, selected_title
+
+
+def _seed_default_records(state: PromptState) -> PromptState:
+    records, selected_title = _load_default_records()
+    if not records:
+        return state
+
+    state.records = records
+    state.next_index = max(state.next_index, len(records) + 1)
+
+    selected_record = None
+    if selected_title:
+        selected_record = next((record for record in records if record.title == selected_title), None)
+    selected_record = selected_record or records[0]
+
+    state.selected_record_id = selected_record.id
+    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, selected_record.id)
+    settings.set(AppStorageKeys.SYSTEM_PROMPT, selected_record.prompt)
+    _persist(state)
+    return state
+
+
 def load_state(hidden_space: bool = False) -> PromptState:
     state = PromptState(
         hidden_space=bool(hidden_space),
@@ -76,6 +123,8 @@ def load_state(hidden_space: bool = False) -> PromptState:
 
             settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, record.id)
             settings.set(AppStorageKeys.SYSTEM_PROMPT, record.prompt)
+        else:
+            state = _seed_default_records(state)
 
     return state
 
