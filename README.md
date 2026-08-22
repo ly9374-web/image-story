@@ -3,7 +3,7 @@
 运行：
 
 ```bash
-streamlit run streamlit_app.py
+python3 -m streamlit run streamlit_app.py
 ```
 
 你需要把自己的 API Key 填到“APIkey”页面，或者在 Streamlit Cloud 的 App settings / Secrets 中配置：

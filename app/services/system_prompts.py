@@ -7,7 +7,6 @@ from typing import Optional
 
 from app.config import AppStorageKeys, settings
 from app.models import SystemPromptRecord, now_iso
-from app.services import hidden_space
 
 
 DEFAULT_SYSTEM_PROMPT_FILE = Path(__file__).resolve().parents[1] / "default_prompts" / "system_prompt.json"
@@ -163,22 +162,18 @@ def get_record(state: PromptState, record_id: str) -> Optional[SystemPromptRecor
     return None
 
 
-def unlock_hidden_space(state: PromptState, passcode: str) -> PromptState:
-    if hidden_space.is_valid_passcode(passcode):
-        state.hidden_space = True
-    return state
-
-
 def save_prompt(
     state: PromptState,
     *,
     record_id: str,
     title: str,
     prompt: str,
+    first_reply: str = "",
 ) -> PromptState:
     record_id = str(record_id or "").strip()
     title = str(title or "").strip()
     prompt = str(prompt or "").strip()
+    first_reply = str(first_reply or "").strip()
 
     existing = get_record(state, record_id) if record_id else None
 
@@ -186,6 +181,7 @@ def save_prompt(
         if title:
             existing.title = title
         existing.prompt = prompt
+        existing.first_reply = first_reply
         existing.updated_at = now_iso()
         settings.set(AppStorageKeys.SYSTEM_PROMPT, existing.prompt)
         settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, existing.id)
@@ -203,6 +199,7 @@ def save_prompt(
     record = SystemPromptRecord(
         title=new_title,
         prompt=prompt,
+        first_reply=first_reply,
         created_at=now_iso(),
         updated_at=now_iso(),
     )
@@ -234,3 +231,11 @@ def delete_record(state: PromptState, record_id: str) -> PromptState:
 
     _persist(state)
     return state
+
+
+def selected_first_reply(state: PromptState) -> str:
+    """当前选中 prompt 记录的首轮输出（未设置则为空串）。"""
+    record = get_record(state, state.selected_record_id)
+    if record is None:
+        return ""
+    return str(record.first_reply or "").strip()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import secrets
 import uuid
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
@@ -25,6 +26,7 @@ from app.models import (
     Page2ConversationTurn,
     now_iso,
 )
+from app.services.agent_prompts import DEFAULT_STORY_BRAIN_GENERATOR_PROMPT
 from app.storage import ChatRecordStore
 from story_brain import (
     build_memory_pack,
@@ -35,6 +37,9 @@ from story_brain import (
 
 
 DEFAULT_SYSTEM_PROMPT = ""
+STORY_BRAIN_LONG = "story_brain_long"
+STORY_BRAIN_SHORT = "story_brain_short"
+STORY_BRAIN_MODES = [STORY_BRAIN_LONG, STORY_BRAIN_SHORT]
 
 STORY_BRAIN_SYSTEM_RULES = """
 你回复中的人物和故事必须严格遵守 Story Brain Memory Pack 中的长期记忆。
@@ -62,6 +67,10 @@ STORY_BRAIN_UPDATE_SYSTEM_PROMPT = """
 JSON 顶层必须包含 suggested_updates 数组。
 """.strip()
 
+UNEXPECTED_EVENT_PROMPT = """
+本轮根据上下文，根据剧情走向和人设发生一件自然的意外事件（不要直接告诉用户是意外事件），意外情况需要推动剧情的发展，需要用户对其进行反应。意外情况可以是场景中的角色说的话，做的行为，也可以是新角色的入场或者场景中什么事情的发生
+""".strip()
+
 
 def _latest_assistant_message(turns: Iterable[Page2ConversationTurn]) -> str:
     for turn in reversed(list(turns)):
@@ -76,6 +85,41 @@ def _story_brain_memory_source_text(previous_assistant_text: str, user_message: 
         str(user_message or "").strip(),
     ]
     return "\n\n".join(part for part in parts if part)
+
+
+def _strip_plain_text_output(raw_text: str) -> str:
+    text = str(raw_text or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
+def _turn_history_text(turns: Iterable[Page2ConversationTurn], limit: int) -> str:
+    limit = max(0, int(limit))
+    if limit == 0:
+        return ""
+
+    completed_turns = [
+        turn
+        for turn in list(turns or [])
+        if str(getattr(turn, "user_message", "") or "").strip()
+        or str(getattr(turn, "assistant_message", "") or "").strip()
+    ]
+    recent = completed_turns[-limit:]
+    lines = []
+    for turn in recent:
+        user_text = str(getattr(turn, "user_message", "") or "").strip()
+        assistant_text = str(getattr(turn, "assistant_message", "") or "").strip()
+        if user_text:
+            lines.append("用户：" + user_text)
+        if assistant_text:
+            lines.append("助手：" + assistant_text)
+    return "\n".join(lines)
 
 
 def _build_story_brain_memory_pack_json(
@@ -117,6 +161,22 @@ def _inject_story_brain_into_prompt(
 {current_text}
 """.strip()
     return enhanced_system_prompt, enhanced_user_message
+
+
+def _inject_short_story_brain_into_user_prompt(user_message: str, story_brain_short: str) -> str:
+    current_text = str(user_message or "").strip()
+    story_brain_text = str(story_brain_short or "").strip() or "暂无"
+    story_brain_section = f"<当前故事背景>{story_brain_text}</当前故事背景>"
+    return f"{story_brain_section}\n\n{current_text}".strip()
+
+
+def roll_point() -> int:
+    return secrets.randbelow(25)
+
+
+def _append_unexpected_event_prompt(user_message: str) -> str:
+    current_text = str(user_message or "").strip()
+    return f"{current_text}\n\n{UNEXPECTED_EVENT_PROMPT}".strip()
 
 
 def _parse_story_brain_suggested_updates(raw_text: str) -> dict:
@@ -173,11 +233,22 @@ class Page2Context:
     context_turn_count: int
     selected_chat_model: str
     story_brain_update_model: str
+    story_brain_mode: str
+    story_brain_turns: int
+    unexpected_event_enabled: bool
+    unexpected_event_threshold: int
     temperature: float
     selected_video_generation_provider: str
 
 
 def load_context_from_settings() -> Page2Context:
+    story_brain_mode = str(
+        settings.get(AppStorageKeys.PAGE2_STORY_BRAIN_MODE, STORY_BRAIN_LONG)
+        or STORY_BRAIN_LONG
+    )
+    if story_brain_mode not in STORY_BRAIN_MODES:
+        story_brain_mode = STORY_BRAIN_LONG
+
     return Page2Context(
         system_prompt=str(settings.get(AppStorageKeys.SYSTEM_PROMPT, "") or "").strip()
         or DEFAULT_SYSTEM_PROMPT,
@@ -188,6 +259,16 @@ def load_context_from_settings() -> Page2Context:
         story_brain_update_model=str(
             settings.get(AppStorageKeys.PAGE2_STORY_BRAIN_UPDATE_MODEL, "deepseek")
             or "deepseek"
+        ),
+        story_brain_mode=story_brain_mode,
+        story_brain_turns=max(1, settings.int(AppStorageKeys.PAGE2_STORY_BRAIN_TURNS, 6)),
+        unexpected_event_enabled=settings.bool(
+            AppStorageKeys.PAGE2_UNEXPECTED_EVENT_ENABLED,
+            False,
+        ),
+        unexpected_event_threshold=min(
+            24,
+            max(0, settings.int(AppStorageKeys.PAGE2_UNEXPECTED_EVENT_THRESHOLD, 20)),
         ),
         temperature=float(settings.float(AppStorageKeys.PAGE2_TEMPERATURE, 0.8)),
         selected_video_generation_provider=str(
@@ -203,14 +284,18 @@ def default_context() -> Page2Context:
         context_turn_count=8,
         selected_chat_model="grok1",
         story_brain_update_model="deepseek",
+        story_brain_mode=STORY_BRAIN_LONG,
+        story_brain_turns=6,
+        unexpected_event_enabled=False,
+        unexpected_event_threshold=20,
         temperature=0.8,
         selected_video_generation_provider="domoai",
     )
 
 
 def reset_context_settings():
-    save_context_to_settings(default_context())
-    settings.set(AppStorageKeys.SELECTED_SYSTEM_PROMPT_RECORD_ID, "")
+    # 全部设置（含 prompt 选择）保留上次值，不重置
+    return
 
 
 def save_context_to_settings(ctx: Page2Context):
@@ -220,6 +305,19 @@ def save_context_to_settings(ctx: Page2Context):
     settings.set(
         AppStorageKeys.PAGE2_STORY_BRAIN_UPDATE_MODEL,
         str(ctx.story_brain_update_model or "deepseek"),
+    )
+    story_brain_mode = str(ctx.story_brain_mode or STORY_BRAIN_LONG)
+    if story_brain_mode not in STORY_BRAIN_MODES:
+        story_brain_mode = STORY_BRAIN_LONG
+    settings.set(AppStorageKeys.PAGE2_STORY_BRAIN_MODE, story_brain_mode)
+    settings.set(AppStorageKeys.PAGE2_STORY_BRAIN_TURNS, max(1, int(ctx.story_brain_turns)))
+    settings.set(
+        AppStorageKeys.PAGE2_UNEXPECTED_EVENT_ENABLED,
+        bool(ctx.unexpected_event_enabled),
+    )
+    settings.set(
+        AppStorageKeys.PAGE2_UNEXPECTED_EVENT_THRESHOLD,
+        min(24, max(0, int(ctx.unexpected_event_threshold))),
     )
     settings.set(AppStorageKeys.PAGE2_TEMPERATURE, float(ctx.temperature))
     settings.set(
@@ -241,7 +339,8 @@ def build_context_messages(
     messages: list[dict] = []
 
     for turn in slice_turns:
-        messages.append({"role": "user", "content": turn.user_message})
+        if turn.user_message:
+            messages.append({"role": "user", "content": turn.user_message})
         if turn.assistant_message:
             messages.append({"role": "assistant", "content": turn.assistant_message})
 
@@ -254,13 +353,19 @@ def send_message(
     turns: list[Page2ConversationTurn],
     user_message: str,
     story_brain: dict,
+    story_brain_short: str = "",
     story_brain_enabled: bool = True,
 ) -> str:
     context_messages = build_context_messages(turns, ctx.context_turn_count)
     system_prompt = ctx.system_prompt
     user_message_for_model = user_message
 
-    if story_brain_enabled:
+    if story_brain_enabled and ctx.story_brain_mode == STORY_BRAIN_SHORT:
+        user_message_for_model = _inject_short_story_brain_into_user_prompt(
+            user_message,
+            story_brain_short,
+        )
+    elif story_brain_enabled:
         memory_source_text = _story_brain_memory_source_text(
             _latest_assistant_message(turns),
             user_message,
@@ -271,6 +376,11 @@ def send_message(
             memory_source_text=memory_source_text,
             story_brain=story_brain,
         )
+
+    if ctx.unexpected_event_enabled:
+        threshold = min(24, max(0, int(ctx.unexpected_event_threshold)))
+        if roll_point() >= threshold:
+            user_message_for_model = _append_unexpected_event_prompt(user_message_for_model)
 
     if ctx.selected_chat_model == "deepseek":
         return DeepSeekAPIClient.send_message(
@@ -296,6 +406,41 @@ def send_message(
         model="grok-4.3",
         temperature=ctx.temperature,
     )
+
+
+def generate_short_story_brain(
+    *,
+    ctx: Page2Context,
+    turns: list[Page2ConversationTurn],
+    story_brain_short: str,
+) -> str:
+    history_turns = max(1, int(ctx.story_brain_turns))
+    generator_user_message = f"""
+过去的记录：
+{_turn_history_text(turns, history_turns) or "暂无"}
+
+现有 Story Brain：
+{str(story_brain_short or "").strip() or "暂无"}
+""".strip()
+
+    if ctx.selected_chat_model == "deepseek":
+        raw_text = DeepSeekAPIClient.send_message(
+            system_prompt=DEFAULT_STORY_BRAIN_GENERATOR_PROMPT,
+            context_messages=[],
+            user_message=generator_user_message,
+            temperature=ctx.temperature,
+        )
+    else:
+        raw_text = GrokAPIClient.send_message(
+            system_prompt=DEFAULT_STORY_BRAIN_GENERATOR_PROMPT,
+            context_messages=[],
+            user_message=generator_user_message,
+            model="grok-4.3",
+            temperature=ctx.temperature,
+        )
+
+    updated_story_brain = _strip_plain_text_output(raw_text)
+    return updated_story_brain or str(story_brain_short or "").strip()
 
 
 def generate_image_prompt(latest_assistant_message: str, mode: str = "normal", subject: str = "") -> str:
@@ -483,6 +628,11 @@ def make_record_title(turns: list[Page2ConversationTurn]) -> str:
         text = str(turn.user_message or "").strip()
         if text:
             return text[:24]
+    # 没有用户消息时（如仅含首轮输出开场消息的记录），用 assistant 消息做标题
+    for turn in turns:
+        text = str(turn.assistant_message or "").strip()
+        if text:
+            return text[:24]
     return "聊天记录"
 
 
@@ -493,11 +643,13 @@ def upsert_chat_record(
     generated_media: list[GeneratedImageRecord],
     system_prompt: str,
     story_brain: dict,
+    story_brain_short: str = "",
     scope: str | None = None,
 ) -> str:
     normalized_story_brain = normalize_story_brain(story_brain)
     has_story_brain = any(normalized_story_brain.get(key) for key in ("characters", "relationships", "events"))
-    if not turns and not generated_media and not has_story_brain:
+    has_short_story_brain = bool(str(story_brain_short or "").strip())
+    if not turns and not generated_media and not has_story_brain and not has_short_story_brain:
         return str(record_id or "").strip()
 
     now = now_iso()
@@ -518,6 +670,7 @@ def upsert_chat_record(
         system_prompt=system_prompt,
         generated_images=generated_media,
         story_brain=normalized_story_brain,
+        story_brain_short=str(story_brain_short or "").strip(),
         created_at=existing_created_at or now,
         updated_at=now,
     )

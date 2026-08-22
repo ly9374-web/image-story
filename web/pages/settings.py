@@ -1,7 +1,7 @@
 import streamlit as st
 
 from app.config import AppStorageKeys, settings
-from app.services import hidden_space, system_prompts
+from app.services import system_prompts
 
 
 def render():
@@ -10,28 +10,13 @@ def render():
     mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
     is_guest = mode == "guest"
 
-    if "settings_hidden_space" not in st.session_state:
-        st.session_state.settings_hidden_space = False
     if "settings_hp_nonce" not in st.session_state:
         st.session_state.settings_hp_nonce = 0
 
-    state = system_prompts.load_state(hidden_space=bool(st.session_state.settings_hidden_space))
+    state = system_prompts.load_state(hidden_space=bool(st.session_state.get("hidden_unlocked", False)))
 
     with st.sidebar:
         st.subheader("System Prompt")
-        passcode = st.text_input(
-            "隐藏空间口令",
-            type="password",
-            placeholder="输入口令切换隐藏模式",
-            key=f"settings_hp_{st.session_state.settings_hp_nonce}",
-        )
-        if passcode:
-            if hidden_space.is_valid_passcode(passcode):
-                st.session_state.settings_hidden_space = not bool(st.session_state.settings_hidden_space)
-                st.session_state.settings_hp_nonce += 1
-                st.rerun()
-            else:
-                st.warning("隐藏空间口令不正确。")
         st.caption("当前使用的 prompt 会同步到 Page2。")
 
     records = system_prompts.visible_records(state)
@@ -74,6 +59,7 @@ def render():
         st.subheader("编辑" if not is_guest else "预览")
         title_value = selected_record.title if selected_record else ""
         prompt_value = selected_record.prompt if selected_record else str(settings.get(AppStorageKeys.SYSTEM_PROMPT, "") or "")
+        first_reply_value = selected_record.first_reply if selected_record else ""
 
         title = st.text_input(
             "记录名称",
@@ -89,6 +75,14 @@ def render():
             disabled=is_guest,
             key=f"system_prompt_body_{record_key}",
         )
+        first_reply = st.text_area(
+            "首轮输出",
+            value=first_reply_value,
+            height=320,
+            placeholder="留空则不自动发送。填写后，点击「开始」或切换到该 prompt 时，assistant 会直接把这里的文字作为开场消息发送（不调用模型），并进入后续上下文。",
+            disabled=is_guest,
+            key=f"system_prompt_first_reply_{record_key}",
+        )
 
         b1, b2, b3 = st.columns(3)
         save = b1.button("保存", type="primary", use_container_width=True, disabled=is_guest)
@@ -101,6 +95,7 @@ def render():
                 record_id=selected_record.id if selected_record else "",
                 title=title,
                 prompt=prompt,
+                first_reply=first_reply,
             )
             st.success("已保存")
             st.rerun()

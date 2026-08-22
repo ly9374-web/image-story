@@ -133,7 +133,7 @@ def _send_model(
 
 
 def _debug_model_name(ctx: AgentContext) -> str:
-    return "deepseek-v4-pro" if ctx.selected_chat_model == "deepseek" else "grok-4.3"
+    return "deepseek-v4-flash" if ctx.selected_chat_model == "deepseek" else "grok-4.3"
 
 
 def _with_required_output_prefix_instruction(user_message: str) -> str:

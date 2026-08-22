@@ -8,7 +8,6 @@ from typing import List, Optional
 from app.api.chat_clients import DeepSeekAPIClient, GrokAPIClient
 from app.config import AppStorageKeys, settings
 from app.models import AgentPromptRecord, now_iso
-from app.services import hidden_space
 
 
 DEFAULT_AGENT_PROMPT_FILE = Path(__file__).resolve().parents[1] / "default_prompts" / "agent_prompt.json"
@@ -25,7 +24,7 @@ PROMPT_FIELDS = [
 ]
 
 
-GENERATED_NPC_PROMPT_PREFIX = "你的任务是扮演以下角色，以第三人称视角输出你对what_just_happened的反应"
+GENERATED_NPC_PROMPT_PREFIX = "你的任务是扮演以下角色，以第三人称视角输出你对what_just_happened的反应，输出少于200字"
 GENERATED_NPC_PROMPT_SUFFIX = "额外要求：根据最近的互动历史中你说话和行为的历史，让你的说话风格和行为多样化一点，不要重复说出与之前类似的话和重复做同样的行为。中文回复"
 
 
@@ -80,7 +79,24 @@ DEFAULT_SCENE_DESCRIPTOR_PROMPT = """你是场景描述器。
 """
 
 
-DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多x轮的记录和我现成的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题、Markdown代码块或JSON。“未来剧情发展“部分下的情节完成一个删除一个，当全部完成时 未来剧情发展显示为“空”（例：未来剧情发展：空）"""
+DEFAULT_STORY_BRAIN_GENERATOR_PROMPT = """我将输入过去最多几轮的记录和我现有的storybrain，我需要你根据我输入的记录，在现有的storybrain上做微调。最终只输出更新后的story brain正文，不要输出解释、标题。Story brain 需要记录3个部分：
+1.场景中所有除主角外NPC的介绍（主角为：）：
+    NPC1的身份：
+    NPC1的能力：
+    NPC1的性格：
+2.长期剧情记忆：
+3.主角状态：
+    特殊状态：
+    持有：
+4.伏笔：
+5.任务：
+-其中“主角为：xxx”的部分持久保持不改变
+-其中NPC记录所有登场后和用户角色有过2轮对话的NPC（他和用户角色至少说过2句话，用户角色也和她至少说过2句话）,并用将“NPC1/2/3”的名字改为NPC在故事中的名称
+-其中“长期剧情记忆“为客观总结剧情中值得记住的事件长久的事件，小事件不计入剧情记忆，并且可以用新状态改写旧状态（比如之前记录xx和yy为敌人,最近几轮两人因为合作关系变为好友则记录为：xx和yy之前为敌人，合作之后现在为朋友）
+-其中”角色状态”记录“主角为:xxx”中主角的状态，特殊状态为案例为：“疲劳”“腿部受伤“”用了加强药剂“”中毒“，持有为当前主角拥有的物质，比如”钥匙“”水瓶“”刀“。当有多主角时单独记录每个主角的状态，并在前面加上主角名称以区分。
+-其中”伏笔“包含了剧情中出现但还未解释的明确伏笔，比如奇怪的声响，奇怪的人，某个NPC的承诺，在特殊场景会被触发的道具
+-其中“任务”包含了本次用户角色需要完成的主要任务和次要任务的总结。
+-如果当前信息不足以提取出可靠的结论则默认为“空”"""
 
 
 @dataclass
@@ -336,12 +352,6 @@ def record_space(state: AgentPromptState, record_id: str) -> Optional[str]:
         if record.id == record_id:
             return "normal"
     return None
-
-
-def unlock_hidden_space(state: AgentPromptState, passcode: str) -> AgentPromptState:
-    if hidden_space.is_valid_passcode(passcode):
-        state.hidden_space = True
-    return state
 
 
 def get_record(state: AgentPromptState, record_id: str) -> Optional[AgentPromptRecord]:

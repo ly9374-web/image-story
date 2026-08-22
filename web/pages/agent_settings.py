@@ -1,6 +1,6 @@
 import streamlit as st
 
-from app.services import agent_prompts, hidden_space
+from app.services import agent_prompts
 
 
 def _label_for_record(state: agent_prompts.AgentPromptState, record, index: int) -> str:
@@ -177,28 +177,13 @@ def render():
     mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
     is_guest = mode == "guest"
 
-    if "agent_prompt_hidden_space" not in st.session_state:
-        st.session_state.agent_prompt_hidden_space = False
     if "agent_prompt_hp_nonce" not in st.session_state:
         st.session_state.agent_prompt_hp_nonce = 0
 
-    state = agent_prompts.load_state(hidden_space=bool(st.session_state.agent_prompt_hidden_space))
+    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("hidden_unlocked", False)))
 
     with st.sidebar:
         st.subheader("Agent Prompt")
-        passcode = st.text_input(
-            "隐藏空间口令",
-            type="password",
-            placeholder="输入口令切换隐藏模式",
-            key=f"agent_prompt_hp_{st.session_state.agent_prompt_hp_nonce}",
-        )
-        if passcode:
-            if hidden_space.is_valid_passcode(passcode):
-                st.session_state.agent_prompt_hidden_space = not bool(st.session_state.agent_prompt_hidden_space)
-                st.session_state.agent_prompt_hp_nonce += 1
-                st.rerun()
-            else:
-                st.warning("隐藏空间口令不正确。")
 
     records = agent_prompts.visible_records(state)
     labels = [_label_for_record(state, record, index) for index, record in enumerate(records)]

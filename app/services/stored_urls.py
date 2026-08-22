@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from app.config import AppStorageKeys, settings
 from app.models import StoredImageURLRecord, now_iso
-from app.services import hidden_space
 
 
 @dataclass
@@ -65,30 +64,29 @@ def validate_url(url: str):
         raise ValueError("请输入有效的 http/https URL。")
 
 
-def add_url(state: StoredURLState, url_or_passcode: str) -> StoredURLState:
-    text = str(url_or_passcode or "").strip()
+def add_url(state: StoredURLState, url: str, title: str = "") -> StoredURLState:
+    text = str(url or "").strip()
     if not text:
-        return state
-
-    if hidden_space.is_valid_passcode(text):
-        state.hidden_space = True
         return state
 
     validate_url(text)
 
-    if state.hidden_space:
-        next_key = AppStorageKeys.HIDDEN_URL_RECORD_NEXT_INDEX
-        index = max(1, settings.int(next_key, 1))
-        title = f"隐藏url{index}"
-        settings.set(next_key, index + 1)
+    custom_title = str(title or "").strip()
+    if custom_title:
+        final_title = custom_title
     else:
-        next_key = AppStorageKeys.STORED_IMAGE_URL_RECORD_NEXT_INDEX
+        if state.hidden_space:
+            next_key = AppStorageKeys.HIDDEN_URL_RECORD_NEXT_INDEX
+            prefix = "隐藏url"
+        else:
+            next_key = AppStorageKeys.STORED_IMAGE_URL_RECORD_NEXT_INDEX
+            prefix = "url"
         index = max(1, settings.int(next_key, 1))
-        title = f"url{index}"
+        final_title = f"{prefix}{index}"
         settings.set(next_key, index + 1)
 
     record = StoredImageURLRecord(
-        title=title,
+        title=final_title,
         url=text,
         created_at=now_iso(),
         updated_at=now_iso(),
@@ -98,6 +96,21 @@ def add_url(state: StoredURLState, url_or_passcode: str) -> StoredURLState:
     else:
         state.records.append(record)
 
+    persist_state(state)
+    return state
+
+
+def rename_url(state: StoredURLState, record_id: str, new_title: str) -> StoredURLState:
+    record_id = str(record_id or "").strip()
+    new_title = str(new_title or "").strip()
+    if not record_id or not new_title:
+        return state
+
+    for records in (state.records, state.hidden_records):
+        for record in records:
+            if record.id == record_id:
+                record.title = new_title
+                record.updated_at = now_iso()
     persist_state(state)
     return state
 

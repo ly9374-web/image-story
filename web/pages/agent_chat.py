@@ -1,17 +1,16 @@
 import base64
 import html
-import tempfile
 from pathlib import Path
 from typing import Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-from app.api.media_clients import CloudinaryUploader
 from app.config import user_facing_error_message
 from app.models import GeneratedMediaKind
-from app.services import agent_prompts, agent_records, agent_service, page2_service, stored_urls
+from app.services import agent_prompts, agent_records, agent_service, page2_service
 from web.nav import get_arg
+from web.pages import url_favorites
 
 
 _story_brain_text_editor_component = components.declare_component(
@@ -66,7 +65,6 @@ def _ensure_state():
     st.session_state.setdefault("agent_image_prompt_mode", "normal")
     st.session_state.setdefault("agent_image_prompt_subject", "")
     st.session_state.setdefault("agent_video_prompt", "动起来")
-    st.session_state.setdefault("agent_url_hidden_space", False)
     st.session_state.setdefault("agent_story_brain_enabled", False)
     st.session_state.setdefault("agent_story_brain_editor_nonce", 0)
     st.session_state.setdefault("agent_last_error", "")
@@ -100,7 +98,7 @@ def _save_agent_story_brain(story_brain: str, prompt_record=None, ctx=None):
 
 
 def _active_prompt_record():
-    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
+    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("hidden_unlocked", False)))
     records = agent_prompts.visible_records(state)
     return agent_prompts.selected_record(state) or (records[0] if records else None)
 
@@ -143,10 +141,9 @@ def _load_record_from_nav_if_needed():
     _sync_context_widgets_from_ctx(ctx)
 
     if str(record.prompt_record_id or "").strip():
-        prompt_state = agent_prompts.load_state(hidden_space=True)
-        if agent_prompts.record_space(prompt_state, record.prompt_record_id) == "hidden":
-            st.session_state.agent_prompt_hidden_space = True
-        prompt_state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
+        prompt_state = agent_prompts.load_state(
+            hidden_space=bool(st.session_state.get("hidden_unlocked", False))
+        )
         agent_prompts.select_record(prompt_state, record.prompt_record_id)
 
 
@@ -241,7 +238,7 @@ def _render_event_list(events: list, display_names: dict):
 
 
 def _select_prompt_record():
-    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("agent_prompt_hidden_space", False)))
+    state = agent_prompts.load_state(hidden_space=bool(st.session_state.get("hidden_unlocked", False)))
     records = agent_prompts.visible_records(state)
     if not records:
         st.warning("暂无 Agent prompt 记录。请先到 Agent Prompt 页面创建一条记录。")
@@ -589,11 +586,14 @@ def _render_chat_column(prompt_record, ctx):
 
 
 def _render_media_column(prompt_record, ctx):
-    st.subheader("图片 / 视频")
-
     media = st.session_state.agent_generated_media
+    url_preview = url_favorites.get_preview_url("agent")
+
     if not media:
-        st.caption("暂无媒体记录。")
+        if url_preview:
+            _render_url_preview_image(url_preview)
+        else:
+            st.caption("暂无媒体记录。")
     else:
         options = []
         by_id = {}
@@ -602,6 +602,9 @@ def _render_media_column(prompt_record, ctx):
             label = f"{kind.upper()} • {item.provider} • {str(item.created_at or '')}"
             options.append(label)
             by_id[label] = item.id
+
+        preview_container = st.container()
+        prompt_container = st.container()
 
         selected_media_id = str(st.session_state.get("agent_selected_media_id", "") or "")
         selected_index = 0
@@ -618,6 +621,10 @@ def _render_media_column(prompt_record, ctx):
             label_visibility="collapsed",
         )
         selected_id = by_id.get(selected_label, "")
+        # 切换「选择记录」时清除 URL 收藏预览，恢复显示媒体记录
+        if selected_id != selected_media_id:
+            url_favorites.clear_preview_url("agent")
+            url_preview = ""
         st.session_state.agent_selected_media_id = selected_id
 
         selected = None
@@ -626,27 +633,52 @@ def _render_media_column(prompt_record, ctx):
                 selected = item
                 break
 
-        if selected is not None:
+        if url_preview:
+            with preview_container:
+                _render_url_preview_image(url_preview)
+        elif selected is not None:
             kind = selected.media_kind.value if hasattr(selected.media_kind, "value") else str(selected.media_kind)
-            st.caption(f"{kind} • provider={selected.provider}")
-            st.text_area("prompt", value=str(selected.prompt or ""), height=120, disabled=True)
+            with preview_container:
+                if kind == GeneratedMediaKind.IMAGE.value:
+                    if selected.image_data_base64:
+                        st.image(_decode_image_base64(selected.image_data_base64))
+                    elif selected.image_url_string:
+                        st.image(selected.image_url_string)
+                else:
+                    url = selected.video_url_string or ""
+                    if url:
+                        st.video(url)
+                    else:
+                        st.warning("该视频记录没有 URL。")
+
+        if not url_preview and selected is not None:
+            kind = selected.media_kind.value if hasattr(selected.media_kind, "value") else str(selected.media_kind)
+            with prompt_container:
+                st.caption(f"{kind} • provider={selected.provider}")
+                st.caption("prompt")
+                st.code(
+                    str(selected.prompt or ""),
+                    language=None,
+                    wrap_lines=True,
+                    height=120,
+                )
 
             if kind == GeneratedMediaKind.IMAGE.value:
-                if selected.image_data_base64:
-                    st.image(_decode_image_base64(selected.image_data_base64))
-                elif selected.image_url_string:
-                    st.image(selected.image_url_string)
-
                 url = selected.image_url_string or ""
                 if url:
-                    st.text_input("图片 URL（可复制）", value=url)
+                    url_favorites.render_url_display_with_copy(
+                        url,
+                        key=f"agent_media_url_copy_{selected.id}",
+                        label="图片 URL（可复制）",
+                    )
             else:
                 url = selected.video_url_string or ""
                 if url:
-                    st.video(url)
-                    st.text_input("视频 URL（可复制）", value=url)
-                else:
-                    st.warning("该视频记录没有 URL。")
+                    url_favorites.render_url_display_with_copy(
+                        url,
+                        key=f"agent_media_url_copy_{selected.id}",
+                        label="视频 URL（可复制）",
+                    )
 
             if st.button("删除当前记录", use_container_width=True):
                 st.session_state.agent_generated_media = [m for m in media if m.id != selected_id]
@@ -697,6 +729,7 @@ def _render_media_column(prompt_record, ctx):
                 record = page2_service.generate_image(provider=provider, prompt=prompt_text, image_urls=image_urls)
                 st.session_state.agent_generated_media = media + [record]
                 st.session_state.agent_selected_media_id = record.id
+                url_favorites.clear_preview_url("agent")
                 _save_current_record(prompt_record, ctx)
                 st.success("图片已生成并保存到记录")
                 st.rerun()
@@ -765,6 +798,7 @@ def _render_media_column(prompt_record, ctx):
                 )
                 st.session_state.agent_generated_media = media + [video_record]
                 st.session_state.agent_selected_media_id = video_record.id
+                url_favorites.clear_preview_url("agent")
                 _save_current_record(prompt_record, ctx)
                 st.success("视频已生成并保存到记录")
                 st.rerun()
@@ -774,57 +808,16 @@ def _render_media_column(prompt_record, ctx):
     _render_url_tools()
 
 
+def _render_url_preview_image(url: str) -> None:
+    """显示「URL 收藏」里点「显示图片」选中的图片。"""
+    try:
+        st.image(url)
+    except Exception:
+        st.error("无法显示该 URL 的图片。")
+
+
 def _render_url_tools():
-    st.divider()
-    st.subheader("URL 收藏")
-
-    url_state = stored_urls.load_state(hidden_space=bool(st.session_state.agent_url_hidden_space))
-    st.session_state.agent_url_hidden_space = url_state.hidden_space
-
-    url_input = st.text_input("新增 URL 或输入口令解锁隐藏空间", value="")
-    add_col1, add_col2 = st.columns([1, 1])
-    with add_col1:
-        if st.button("新增", use_container_width=True):
-            try:
-                url_state = stored_urls.add_url(url_state, url_input)
-                st.session_state.agent_url_hidden_space = url_state.hidden_space
-                st.rerun()
-            except Exception as exc:
-                _show_error(exc)
-    with add_col2:
-        uploaded = st.file_uploader("上传图片获取 URL（Cloudinary）", type=["png", "jpg", "jpeg", "webp"])
-        if uploaded is not None and st.button("上传并复制 URL", use_container_width=True):
-            with st.spinner("上传中..."):
-                try:
-                    suffix = Path(uploaded.name).suffix or ".png"
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                        tmp.write(uploaded.getvalue())
-                        tmp_path = tmp.name
-                    secure_url = CloudinaryUploader.upload_image(tmp_path)
-                    st.success("上传成功（URL 可复制）")
-                    st.text_input("URL", value=secure_url)
-                except Exception as exc:
-                    _show_error(exc)
-
-    visible = stored_urls.visible_records(url_state)
-    if visible:
-        url_labels = []
-        url_by_label = {}
-        for record in visible:
-            prefix = "隐藏：" if record in url_state.hidden_records else ""
-            label = f"{prefix}{record.title}: {record.url}"
-            url_labels.append(label)
-            url_by_label[label] = record
-        chosen = st.selectbox("收藏列表", options=url_labels)
-        record = url_by_label.get(chosen)
-        if record is not None:
-            st.text_input("选中 URL（可复制）", value=record.url)
-            if st.button("删除选中 URL", use_container_width=True):
-                stored_urls.delete_url(url_state, record.id)
-                st.success("已删除")
-                st.rerun()
-    else:
-        st.caption("暂无收藏。")
+    url_favorites.render_url_favorites("agent")
 
 
 def render():
@@ -834,7 +827,8 @@ def render():
 <style>
 /* Agent chat: match the normal chat page's top alignment. */
 section[data-testid="stMain"] .block-container {
-  padding-top: 16px !important;
+  padding-top: 32px !important;
+  padding-bottom: 0px !important;
 }
 </style>
         """,

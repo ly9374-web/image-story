@@ -439,7 +439,7 @@ class DeepSeekAPIClient:
 
         body = {
             "messages": messages,
-            "model": "deepseek-v4-pro",
+            "model": "deepseek-v4-flash",
             "thinking": {
                 "type": "enabled",
             },

@@ -184,6 +184,16 @@ div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
 }
 
 /* ===== Page2 chat canvas (custom layout) ===== */
+/* Inline editor bridge component: zero footprint so it doesn't shift the canvas down */
+.st-key-page2_inline_editor {
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
 div[data-testid="stVerticalBlock"].st-key-page2_chat_canvas,
 .st-key-page2_chat_canvas {
   /* Fixed canvas height; content overflow scrolls inside this container */
@@ -196,10 +206,10 @@ div[data-testid="stVerticalBlock"].st-key-page2_chat_canvas,
   --page2-undo-nudge-y: var(--page2-chat-btn); /* negative = move up, positive = move down */
   --page2-undo-nudge-x: 30px;       /* positive = move right */
   --page2-controls-pad-right: 18px; /* extra breathing room for text */
-  /* Shorten canvas a bit so it doesn't feel "infinite" */
-  height: calc(100dvh - 95px) !important;
-  max-height: calc(100dvh - 95px) !important;
-  min-height: calc(100dvh - 95px) !important;
+  /* Fill the viewport vertically (leaves a ~5px breathing gap at the bottom) */
+  height: calc(100dvh - 69px) !important;
+  max-height: calc(100dvh - 69px) !important;
+  min-height: calc(100dvh - 69px) !important;
   flex: 0 0 auto !important;
   display: flex !important;
   flex-direction: column !important;
@@ -211,16 +221,25 @@ div[data-testid="stVerticalBlock"].st-key-page2_chat_canvas,
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 16px 40px rgba(0, 0, 0, 0.55) !important;
-  overflow: auto !important;
+  overflow: hidden !important;
   overscroll-behavior: contain !important;
 }
 
+.st-key-page2_chat_canvas > div:has(> .st-key-page2_chat_history) {
+  position: absolute !important;
+  inset: var(--page2-chat-pad) var(--page2-chat-pad)
+    calc(var(--page2-chat-pad) + 72px + var(--page2-chat-gap)) !important;
+  width: auto !important;
+  overflow: hidden !important;
+}
 .st-key-page2_chat_history {
-  flex: 1 1 auto !important;
-  overflow: visible !important;
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   padding-right: 6px !important;
-  /* Reserve space for the sticky input bar */
-  padding-bottom: calc(var(--page2-chat-btn) + (var(--page2-chat-pad) * 2)) !important;
+  padding-bottom: 8px !important;
 }
 
 /* Subtle, consistent scrollbars (webkit) */
@@ -239,35 +258,78 @@ div[data-testid="stVerticalBlock"].st-key-page2_chat_canvas,
   background-clip: padding-box;
 }
 
-/* Make chat input look like a bottom bar inside canvas */
-.st-key-page2_chat_input {
-  flex: 0 0 auto !important;
-  position: sticky !important;
-  bottom: 0 !important;
+/* Keep Streamlit's composer wrapper pinned to the bottom of the canvas. */
+.st-key-page2_chat_canvas > div:has(> .st-key-page2_chat_composer) {
+  position: absolute !important;
+  left: var(--page2-chat-pad) !important;
+  right: var(--page2-chat-pad) !important;
+  bottom: var(--page2-chat-pad) !important;
+  width: auto !important;
   z-index: 5 !important;
 }
+.st-key-page2_chat_composer {
+  position: relative !important;
+  width: 100% !important;
+}
+.st-key-page2_chat_input {
+  position: relative !important;
+}
 .st-key-page2_chat_input div[data-testid="stChatInput"] {
+  position: relative !important;
+  height: 75px !important;
   border-radius: 18px !important;
   background: rgba(10, 14, 20, 0.72) !important;
-  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border: 0 !important;
   box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 10px 24px rgba(0, 0, 0, 0.50) !important;
 }
 .st-key-page2_chat_input div[data-testid="stChatInput"] textarea,
 .st-key-page2_chat_input div[data-testid="stChatInput"] [contenteditable="true"] {
-  /* Reserve right-side space for submit button only */
-  padding-right: calc(var(--page2-chat-btn) + var(--page2-controls-pad-right)) !important;
+  /* Reserve right-side space for the dice and submit buttons */
+  padding-right: calc(var(--page2-chat-btn) + var(--page2-chat-btn) + var(--page2-chat-gap) + var(--page2-controls-pad-right)) !important;
 }
 
-/* Normalize submit button size so undo can match it */
-.st-key-page2_chat_canvas [data-testid="stChatInputSubmitButton"] {
+/* Shared positioning for both docked buttons (keeps them aligned at the same top) */
+.st-key-page2_chat_canvas [data-testid="stChatInputSubmitButton"],
+.st-key-page2_chat_dice_btn {
+  position: absolute !important;
+  top: 15px !important; /* (75px input - 44px button) / 2, approx with border */
+  z-index: 7 !important;
   width: var(--page2-chat-btn) !important;
+  margin: 0 !important;
+}
+
+/* Submit button: dock to the right edge of the composer */
+.st-key-page2_chat_canvas [data-testid="stChatInputSubmitButton"] {
+  right: var(--page2-controls-pad-right) !important;
   height: var(--page2-chat-btn) !important;
   min-width: var(--page2-chat-btn) !important;
   border-radius: 14px !important;
 }
 
+/* Dice button: dock immediately left of submit */
+.st-key-page2_chat_dice_btn {
+  right: calc(var(--page2-chat-btn) + var(--page2-chat-gap) + var(--page2-controls-pad-right)) !important;
+  padding: 0 !important;
+  height: var(--page2-chat-btn) !important;
+}
+.st-key-page2_chat_dice_btn button {
+  margin: 0 !important;
+  width: var(--page2-chat-btn) !important;
+  height: var(--page2-chat-btn) !important;
+  min-width: var(--page2-chat-btn) !important;
+  min-height: var(--page2-chat-btn) !important;
+  padding: 0 !important;
+  border-radius: 14px !important;
+  background: rgba(55, 65, 81, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+}
+.st-key-page2_chat_dice_btn button:hover {
+  background: rgba(75, 85, 99, 0.96) !important;
+  border-color: rgba(255, 255, 255, 0.26) !important;
+}
 /* Undo button: visually dock to the left of the submit button */
 .st-key-page2_chat_undo_btn {
   margin-top: 10px !important;
@@ -299,9 +361,9 @@ div[data-testid="stVerticalBlock"].st-key-agent_chat_canvas,
 .st-key-agent_chat_canvas {
   --agent-chat-btn: 44px;
   --agent-controls-pad-right: 18px;
-  height: calc(100dvh - 132px) !important;
-  max-height: calc(100dvh - 132px) !important;
-  min-height: calc(100dvh - 132px) !important;
+  height: calc(100dvh - 122px) !important;
+  max-height: calc(100dvh - 122px) !important;
+  min-height: calc(100dvh - 122px) !important;
   display: flex !important;
   flex-direction: column !important;
   position: relative !important;

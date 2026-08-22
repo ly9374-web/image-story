@@ -4,7 +4,6 @@ import streamlit as st
 
 from app.services import agent_records
 from app.services import chat_records
-from app.services import hidden_space
 from web.nav import goto
 
 
@@ -84,19 +83,11 @@ def render():
     agent_mode = bool(st.session_state.get("agent_mode", False))
     st.title("Agent 记录" if agent_mode else "记录")
 
-    if "records_hidden_space" not in st.session_state:
-        st.session_state.records_hidden_space = False
     if "records_debug_record_id" not in st.session_state:
         st.session_state.records_debug_record_id = ""
 
     with st.sidebar:
         st.subheader("Agent 聊天记录" if agent_mode else "聊天记录")
-        passcode = st.text_input("隐藏空间口令", type="password", placeholder="输入口令显示隐藏记录")
-        if passcode:
-            st.session_state.records_hidden_space = hidden_space.unlock(
-                bool(st.session_state.records_hidden_space),
-                passcode,
-            )
         st.caption("提示：把聊天标题改成以「隐藏：」开头，可在未解锁时隐藏。")
 
     mode = str(st.session_state.get("auth_mode", "") or "").strip().lower()
@@ -106,7 +97,7 @@ def render():
         if agent_mode
         else chat_records.load_index_sorted(scope=scope)
     )
-    if not bool(st.session_state.records_hidden_space):
+    if not bool(st.session_state.get("hidden_unlocked", False)):
         items = [i for i in items if not str(i.title or "").strip().startswith("隐藏：")]
 
     if not items:

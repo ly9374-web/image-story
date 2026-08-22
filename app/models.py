@@ -34,6 +34,7 @@ class GeneratedMediaKind(str, Enum):
 class SystemPromptRecord:
     title: str
     prompt: str
+    first_reply: str = ""
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -44,6 +45,7 @@ class SystemPromptRecord:
             id=data.get("id") or new_id(),
             title=data.get("title", "未命名记录"),
             prompt=data.get("prompt", ""),
+            first_reply=data.get("first_reply") or data.get("firstReply") or "",
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -53,6 +55,7 @@ class SystemPromptRecord:
             "id": self.id,
             "title": self.title,
             "prompt": self.prompt,
+            "first_reply": self.first_reply,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -238,6 +241,7 @@ class ChatRecord:
     system_prompt: str
     generated_images: list = field(default_factory=list)
     story_brain: dict = field(default_factory=empty_story_brain)
+    story_brain_short: str = ""
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -263,6 +267,7 @@ class ChatRecord:
             system_prompt=data.get("system_prompt") or data.get("systemPrompt") or "",
             generated_images=generated_images,
             story_brain=normalize_story_brain(data.get("story_brain") or data.get("storyBrain")),
+            story_brain_short=data.get("story_brain_short") or data.get("storyBrainShort") or "",
             created_at=data.get("created_at") or data.get("createdAt") or now_iso(),
             updated_at=data.get("updated_at") or data.get("updatedAt") or now_iso(),
         )
@@ -281,6 +286,7 @@ class ChatRecord:
                 for image in self.generated_images
             ],
             "story_brain": normalize_story_brain(self.story_brain),
+            "story_brain_short": str(self.story_brain_short or "").strip(),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

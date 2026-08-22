@@ -7,7 +7,8 @@ from app.storage import ChatRecordStore
 import time
 
 
-_PASSCODE = "1369"
+_PASSCODE_FULL = "1369"      # 完整账户：登录后隐藏空间可见
+_PASSCODE_LIMITED = "1234"   # 受限账户：登录后隐藏空间不可见
 
 
 def _toast_error(message: str):
@@ -149,6 +150,7 @@ section.main > div.block-container > [data-testid="stVerticalBlock"] {
         st.session_state.auth_ok = True
         st.session_state.auth_mode = "guest"
         st.session_state.user_id = ""
+        st.session_state.hidden_unlocked = False
         st.session_state.guest_expires_at = time.time() + 10 * 60
         ChatRecordStore.clear_scope(ChatRecordStore.GUEST_SCOPE)
         for key in [
@@ -160,17 +162,18 @@ section.main > div.block-container > [data-testid="stVerticalBlock"] {
             "page2_image_prompt",
             "page2_image_prompt_mode",
             "page2_image_prompt_subject",
-            "page2_url_hidden_space",
         ]:
             if key in st.session_state:
                 st.session_state.pop(key, None)
         goto("home", push_history=False)
 
     if login:
-        if str(code or "").strip() == _PASSCODE:
+        entered = str(code or "").strip()
+        if entered in (_PASSCODE_FULL, _PASSCODE_LIMITED):
             st.session_state.auth_ok = True
             st.session_state.auth_mode = "user"
             st.session_state.user_id = "1"
+            st.session_state.hidden_unlocked = entered == _PASSCODE_FULL
             st.session_state.pop("guest_expires_at", None)
             goto("home", push_history=False)
         else:

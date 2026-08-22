@@ -32,6 +32,10 @@ class AppStorageKeys:
     PAGE2_CONTEXT_TURN_COUNT = "page2ContextTurnCount"
     PAGE2_SELECTED_CHAT_MODEL = "page2SelectedChatModel"
     PAGE2_STORY_BRAIN_UPDATE_MODEL = "page2StoryBrainUpdateModel"
+    PAGE2_STORY_BRAIN_MODE = "page2StoryBrainMode"
+    PAGE2_STORY_BRAIN_TURNS = "page2StoryBrainTurns"
+    PAGE2_UNEXPECTED_EVENT_ENABLED = "page2UnexpectedEventEnabled"
+    PAGE2_UNEXPECTED_EVENT_THRESHOLD = "page2UnexpectedEventThreshold"
     PAGE2_TEMPERATURE = "page2Temperature"
     PAGE2_SELECTED_VIDEO_GENERATION_PROVIDER = "page2SelectedVideoGenerationProvider"
 

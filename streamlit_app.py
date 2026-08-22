@@ -62,6 +62,7 @@ def _render_guest_countdown():
         st.session_state.auth_ok = False
         st.session_state.auth_mode = ""
         st.session_state.user_id = ""
+        st.session_state.hidden_unlocked = False
         st.session_state.pop("guest_expires_at", None)
         st.warning("游客试用已结束，请重新登录。")
         goto("signin", push_history=False)
@@ -88,6 +89,7 @@ def _render_sidebar():
             st.session_state.auth_ok = False
             st.session_state.auth_mode = ""
             st.session_state.user_id = ""
+            st.session_state.hidden_unlocked = False
             st.session_state.pop("guest_expires_at", None)
             st.session_state.nav_history = []
             goto("signin", push_history=False)
@@ -139,6 +141,8 @@ def main():
         st.session_state.auth_mode = ""
     if "user_id" not in st.session_state:
         st.session_state.user_id = ""
+    if "hidden_unlocked" not in st.session_state:
+        st.session_state.hidden_unlocked = False
     if bool(st.session_state.auth_ok) and not str(st.session_state.auth_mode or "").strip():
         st.session_state.auth_mode = "user"
         st.session_state.user_id = st.session_state.user_id or "1"
